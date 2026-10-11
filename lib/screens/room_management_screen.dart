@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/room_database.dart';
 import '../models/room.dart';
+import 'invoice_management_screen.dart';
 
 class RoomManagementScreen extends StatefulWidget {
   const RoomManagementScreen({super.key});
@@ -238,6 +239,18 @@ Future<void> _openRoomForm({Room? room}) async {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Hóa đơn',
+            icon: const Icon(Icons.receipt_long),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const InvoiceManagementScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Tải lại',
             onPressed: _loadRooms,
