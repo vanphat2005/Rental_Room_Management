@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -6,16 +5,16 @@ import '../database/room_database.dart';
 import '../models/room.dart';
 import 'invoice_management_screen.dart';
 
+import 'account_management_screen.dart';
+
 class RoomManagementScreen extends StatefulWidget {
   const RoomManagementScreen({super.key});
 
   @override
-  State<RoomManagementScreen> createState() =>
-      _RoomManagementScreenState();
+  State<RoomManagementScreen> createState() => _RoomManagementScreenState();
 }
 
-class _RoomManagementScreenState
-    extends State<RoomManagementScreen> {
+class _RoomManagementScreenState extends State<RoomManagementScreen> {
   List<Room> _rooms = [];
   bool _loading = true;
 
@@ -48,12 +47,12 @@ class _RoomManagementScreenState
 
   List<Room> get _filteredRooms {
     return _rooms.where((room) {
-      final matchesKeyword = room.roomNumber
-          .toLowerCase()
-          .contains(_keyword.toLowerCase());
+      final matchesKeyword = room.roomNumber.toLowerCase().contains(
+        _keyword.toLowerCase(),
+      );
 
-      final matchesStatus = _filterStatus == 'all' ||
-          room.status == _filterStatus;
+      final matchesStatus =
+          _filterStatus == 'all' || room.status == _filterStatus;
 
       return matchesKeyword && matchesStatus;
     }).toList();
@@ -62,8 +61,7 @@ class _RoomManagementScreenState
   int get _availableCount =>
       _rooms.where((r) => r.status == 'available').length;
 
-  int get _rentedCount =>
-      _rooms.where((r) => r.status == 'rented').length;
+  int get _rentedCount => _rooms.where((r) => r.status == 'rented').length;
 
   int get _maintenanceCount =>
       _rooms.where((r) => r.status == 'maintenance').length;
@@ -109,67 +107,58 @@ class _RoomManagementScreenState
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
-
-Future<void> _openRoomForm({Room? room}) async {
-  final result = await showDialog<Room>(
-    context: context,
-    builder: (_) => RoomFormDialog(room: room),
-  );
-
-  if (result == null || !mounted) return;
-
-  try {
-    if (room == null) {
-      await RoomDatabase.instance.insertRoom(result);
-    } else {
-      await RoomDatabase.instance.updateRoom(result);
-    }
-
-    if (!mounted) return;
-
-    _showMessage(
-      room == null
-          ? 'Thêm phòng thành công!'
-          : 'Cập nhật phòng thành công!',
+  Future<void> _openRoomForm({Room? room}) async {
+    final result = await showDialog<Room>(
+      context: context,
+      builder: (_) => RoomFormDialog(room: room),
     );
 
-    await _loadRooms();
-  } catch (e) {
-    if (!mounted) return;
+    if (result == null || !mounted) return;
 
-    final error = e.toString().toLowerCase();
+    try {
+      if (room == null) {
+        await RoomDatabase.instance.insertRoom(result);
+      } else {
+        await RoomDatabase.instance.updateRoom(result);
+      }
 
-    if (error.contains('constraint') ||
-        error.contains('already exists')) {
-      _showMessage('Mã phòng đã tồn tại!');
-    } else {
-      _showMessage('Không thể lưu phòng: $e');
+      if (!mounted) return;
+
+      _showMessage(
+        room == null ? 'Thêm phòng thành công!' : 'Cập nhật phòng thành công!',
+      );
+
+      await _loadRooms();
+    } catch (e) {
+      if (!mounted) return;
+
+      final error = e.toString().toLowerCase();
+
+      if (error.contains('constraint') || error.contains('already exists')) {
+        _showMessage('Mã phòng đã tồn tại!');
+      } else {
+        _showMessage('Không thể lưu phòng: $e');
+      }
     }
   }
-}
 
   Future<void> _deleteRoom(Room room) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Xóa phòng'),
-        content: Text(
-          'Bạn có chắc muốn xóa phòng ${room.roomNumber} không?',
-        ),
+        content: Text('Bạn có chắc muốn xóa phòng ${room.roomNumber} không?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Hủy'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Xóa'),
           ),
@@ -191,19 +180,11 @@ Future<void> _openRoomForm({Room? room}) async {
     }
   }
 
-  Widget _buildStat(
-    String title,
-    int count,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildStat(String title, int count, IconData icon, Color color) {
     return Expanded(
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
           child: Column(
             children: [
               Icon(icon, color: color, size: 25),
@@ -251,10 +232,24 @@ Future<void> _openRoomForm({Room? room}) async {
               );
             },
           ),
+
           IconButton(
             tooltip: 'Tải lại',
             onPressed: _loadRooms,
             icon: const Icon(Icons.refresh),
+          ),
+
+          IconButton(
+            tooltip: 'Quản lý tài khoản',
+            icon: const Icon(Icons.manage_accounts),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AccountManagementScreen(),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -365,16 +360,12 @@ Future<void> _openRoomForm({Room? room}) async {
                               ),
                               const SizedBox(height: 8),
                               if (_rooms.isEmpty)
-                                const Text(
-                                  'Nhấn "Thêm phòng" để bắt đầu.',
-                                ),
+                                const Text('Nhấn "Thêm phòng" để bắt đầu.'),
                             ],
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(
-                            12, 0, 12, 90,
-                          ),
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 90),
                           itemCount: rooms.length,
                           itemBuilder: (context, index) {
                             final room = rooms[index];
@@ -383,15 +374,12 @@ Future<void> _openRoomForm({Room? room}) async {
                             return Card(
                               margin: const EdgeInsets.only(bottom: 10),
                               child: ListTile(
-                                contentPadding:
-                                    const EdgeInsets.all(12),
+                                contentPadding: const EdgeInsets.all(12),
                                 leading: CircleAvatar(
-                                  backgroundColor:
-                                      color.withValues(alpha: 0.12),
-                                  child: Icon(
-                                    Icons.meeting_room,
-                                    color: color,
+                                  backgroundColor: color.withValues(
+                                    alpha: 0.12,
                                   ),
+                                  child: Icon(Icons.meeting_room, color: color),
                                 ),
                                 title: Text(
                                   'Phòng ${room.roomNumber}',
@@ -400,8 +388,7 @@ Future<void> _openRoomForm({Room? room}) async {
                                   ),
                                 ),
                                 subtitle: Padding(
-                                  padding:
-                                      const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.only(top: 8),
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -412,17 +399,15 @@ Future<void> _openRoomForm({Room? room}) async {
                                         Text(room.description),
                                       const SizedBox(height: 6),
                                       Container(
-                                        padding:
-                                            const EdgeInsets.symmetric(
+                                        padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: color.withValues(
-                                            alpha: 0.12,
+                                          color: color.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
                                           ),
-                                          borderRadius:
-                                              BorderRadius.circular(20),
                                         ),
                                         child: Text(
                                           _statusLabel(room.status),
@@ -506,15 +491,11 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
 
     final room = widget.room;
 
-    _numberController = TextEditingController(
-      text: room?.roomNumber ?? '',
-    );
+    _numberController = TextEditingController(text: room?.roomNumber ?? '');
     _priceController = TextEditingController(
       text: room?.rentPrice.toString() ?? '',
     );
-    _areaController = TextEditingController(
-      text: room?.area.toString() ?? '',
-    );
+    _areaController = TextEditingController(text: room?.area.toString() ?? '');
     _descriptionController = TextEditingController(
       text: room?.description ?? '',
     );
@@ -622,10 +603,7 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
                       value: 'available',
                       child: Text('Phòng trống'),
                     ),
-                    DropdownMenuItem(
-                      value: 'rented',
-                      child: Text('Đang thuê'),
-                    ),
+                    DropdownMenuItem(value: 'rented', child: Text('Đang thuê')),
                     DropdownMenuItem(
                       value: 'maintenance',
                       child: Text('Bảo trì'),
