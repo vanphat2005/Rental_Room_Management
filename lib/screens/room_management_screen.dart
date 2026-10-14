@@ -6,6 +6,7 @@ import '../models/room.dart';
 import 'invoice_management_screen.dart';
 
 import 'account_management_screen.dart';
+import 'incident_management_screen.dart';
 
 class RoomManagementScreen extends StatefulWidget {
   const RoomManagementScreen({super.key});
@@ -237,6 +238,19 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
             tooltip: 'Tải lại',
             onPressed: _loadRooms,
             icon: const Icon(Icons.refresh),
+          ),
+
+          IconButton(
+            tooltip: 'Sự cố & Bảo trì',
+            icon: const Icon(Icons.report_problem),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const IncidentManagementScreen(),
+                ),
+              );
+            },
           ),
 
           IconButton(
