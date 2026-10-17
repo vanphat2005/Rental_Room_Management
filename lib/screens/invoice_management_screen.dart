@@ -93,6 +93,57 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }
   }
 
+  // Xóa hóa đơn sau khi xác nhận
+  Future<void> _deleteInvoice(Invoice invoice) async {
+    if (invoice.id == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Xóa hóa đơn'),
+        content: Text(
+          'Bạn có chắc muốn xóa hóa đơn "${invoice.roomNumber} - ${invoice.monthYear}" không?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await InvoiceDatabase.instance.deleteInvoice(invoice.id!);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Đã xóa hóa đơn ${invoice.roomNumber}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      await _loadInvoices();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi xóa hóa đơn: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // Lọc danh sách theo trạng thái và tìm kiếm
   List<Invoice> get _filteredInvoices {
     return _invoices.where((inv) {
@@ -361,6 +412,15 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
                                         invoice: invoice,
                                       ),
                                     ),
+                                    IconButton(
+                                      tooltip: 'Xóa hóa đơn',
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _deleteInvoice(invoice),
+                                    ),
                                   ],
                                 ),
                                 onTap: () async {
@@ -448,6 +508,56 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
+  // Xóa hóa đơn ngay trên màn hình chi tiết
+  Future<void> _confirmDelete() async {
+    if (_invoice.id == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Xóa hóa đơn'),
+        content: Text(
+          'Bạn có chắc muốn xóa hóa đơn "${_invoice.roomNumber} - ${_invoice.monthYear}" không?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await InvoiceDatabase.instance.deleteInvoice(_invoice.id!);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Đã xóa hóa đơn ${_invoice.roomNumber}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      Navigator.pop(context); // Trở về màn hình danh sách
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi xóa hóa đơn: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // Định dạng số tiền VND
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
@@ -512,6 +622,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             tooltip: 'Chỉnh sửa hóa đơn',
             icon: const Icon(Icons.edit),
             onPressed: _editInvoice,
+          ),
+          IconButton(
+            tooltip: 'Xóa hóa đơn',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _confirmDelete,
           ),
         ],
       ),
