@@ -113,4 +113,30 @@ class InvoiceDatabase {
       rethrow;
     }
   }
+
+  // Cập nhật hóa đơn
+  Future<int> updateInvoice(Invoice invoice) async {
+    if (invoice.id == null) {
+      throw ArgumentError('Invoice ID không được để trống khi cập nhật.');
+    }
+    final db = _database ?? await database;
+    final txn = db.transaction('invoices', idb.idbModeReadWrite);
+
+    try {
+      final store = txn.objectStore('invoices');
+      final existing = await store.getObject(invoice.id!);
+      if (existing == null) {
+        await txn.completed;
+        return 0;
+      }
+      await store.put(invoice.toMap());
+      await txn.completed;
+      return 1;
+    } catch (_) {
+      try {
+        await txn.completed;
+      } catch (_) {}
+      rethrow;
+    }
+  }
 }

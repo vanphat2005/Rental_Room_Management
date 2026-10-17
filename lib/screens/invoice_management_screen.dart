@@ -48,26 +48,37 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }
   }
 
-  // Mở form Tạo hóa đơn mới
-  Future<void> _openCreateInvoiceForm() async {
-    final newInvoice = await showDialog<Invoice>(
+  // Mở form Tạo hoặc Cập nhật hóa đơn
+  Future<void> _openInvoiceForm({Invoice? invoice}) async {
+    final result = await showDialog<Invoice>(
       context: context,
-      builder: (_) => const InvoiceFormDialog(),
+      builder: (_) => InvoiceFormDialog(invoice: invoice),
     );
 
-    if (newInvoice == null || !mounted) return;
+    if (result == null || !mounted) return;
 
     try {
-      await InvoiceDatabase.instance.insertInvoice(newInvoice);
+      if (invoice == null) {
+        await InvoiceDatabase.instance.insertInvoice(result);
+        if (!mounted) return;
 
-      if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tạo hóa đơn thành công!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        await InvoiceDatabase.instance.updateInvoice(result);
+        if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tạo hóa đơn thành công!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cập nhật hóa đơn thành công!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
 
       await _loadInvoices();
     } catch (e) {
@@ -75,7 +86,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Lỗi khi tạo hóa đơn: $e'),
+          content: Text('Lỗi: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -315,29 +326,46 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
                                     ),
                                   ),
                                 ),
-                                trailing: Chip(
-                                  label: Text(
-                                    isPaid ? 'Đã thu' : 'Chưa thu',
-                                    style: TextStyle(
-                                      color: isPaid
-                                          ? Colors.green.shade800
-                                          : Colors.red.shade800,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Chip(
+                                      label: Text(
+                                        isPaid ? 'Đã thu' : 'Chưa thu',
+                                        style: TextStyle(
+                                          color: isPaid
+                                              ? Colors.green.shade800
+                                              : Colors.red.shade800,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      backgroundColor: isPaid
+                                          ? Colors.green.shade50
+                                          : Colors.red.shade50,
+                                      side: BorderSide(
+                                        color: isPaid
+                                            ? Colors.green.shade300
+                                            : Colors.red.shade300,
+                                      ),
                                     ),
-                                  ),
-                                  backgroundColor: isPaid
-                                      ? Colors.green.shade50
-                                      : Colors.red.shade50,
-                                  side: BorderSide(
-                                    color: isPaid
-                                        ? Colors.green.shade300
-                                        : Colors.red.shade300,
-                                  ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      tooltip: 'Sửa hóa đơn',
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        color: Colors.indigo,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _openInvoiceForm(
+                                        invoice: invoice,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                onTap: () {
+                                onTap: () async {
                                   // Điều hướng sang Màn hình Chi tiết ngay bên dưới
-                                  Navigator.push(
+                                  await Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (_) => InvoiceDetailScreen(
@@ -345,6 +373,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
                                       ),
                                     ),
                                   );
+                                  await _loadInvoices();
                                 },
                               ),
                             );
@@ -354,7 +383,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCreateInvoiceForm,
+        onPressed: () => _openInvoiceForm(),
         icon: const Icon(Icons.add),
         label: const Text('Tạo hóa đơn'),
         backgroundColor: Colors.indigo,
@@ -364,13 +393,60 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
   }
 }
 
-class InvoiceDetailScreen extends StatelessWidget {
+class InvoiceDetailScreen extends StatefulWidget {
   final Invoice invoice;
 
   const InvoiceDetailScreen({
     super.key,
     required this.invoice,
   });
+
+  @override
+  State<InvoiceDetailScreen> createState() => _InvoiceDetailScreenState();
+}
+
+class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
+  late Invoice _invoice;
+
+  @override
+  void initState() {
+    super.initState();
+    _invoice = widget.invoice;
+  }
+
+  // Mở form Chỉnh sửa hóa đơn ngay trên màn hình chi tiết
+  Future<void> _editInvoice() async {
+    final updated = await showDialog<Invoice>(
+      context: context,
+      builder: (_) => InvoiceFormDialog(invoice: _invoice),
+    );
+
+    if (updated == null || !mounted) return;
+
+    try {
+      await InvoiceDatabase.instance.updateInvoice(updated);
+      if (!mounted) return;
+
+      setState(() {
+        _invoice = updated;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cập nhật hóa đơn thành công!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi cập nhật hóa đơn: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   // Định dạng số tiền VND
   String _formatMoney(double value) {
@@ -421,16 +497,23 @@ class InvoiceDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPaid = invoice.status == 'paid';
+    final isPaid = _invoice.status == 'paid';
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Chi tiết ${invoice.roomNumber}',
+          'Chi tiết ${_invoice.roomNumber}',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Chỉnh sửa hóa đơn',
+            icon: const Icon(Icons.edit),
+            onPressed: _editInvoice,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -448,7 +531,7 @@ class InvoiceDetailScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      invoice.monthYear,
+                      _invoice.monthYear,
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -456,7 +539,7 @@ class InvoiceDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Phòng: ${invoice.roomNumber}',
+                      'Phòng: ${_invoice.roomNumber}',
                       style: const TextStyle(
                         fontSize: 16,
                         color: Colors.grey,
@@ -511,15 +594,15 @@ class InvoiceDetailScreen extends StatelessWidget {
                       ),
                     ),
                     const Divider(height: 20),
-                    _buildFeeRow('Tiền phòng', invoice.roomPrice),
-                    _buildFeeRow('Tiền điện', invoice.electricityCost),
-                    _buildFeeRow('Tiền nước', invoice.waterCost),
-                    if (invoice.otherCost > 0)
-                      _buildFeeRow('Phí dịch vụ khác', invoice.otherCost),
+                    _buildFeeRow('Tiền phòng', _invoice.roomPrice),
+                    _buildFeeRow('Tiền điện', _invoice.electricityCost),
+                    _buildFeeRow('Tiền nước', _invoice.waterCost),
+                    if (_invoice.otherCost > 0)
+                      _buildFeeRow('Phí dịch vụ khác', _invoice.otherCost),
                     const Divider(thickness: 1.5, height: 24),
                     _buildFeeRow(
                       'TỔNG TIỀN',
-                      invoice.totalAmount,
+                      _invoice.totalAmount,
                       isTotal: true,
                     ),
                   ],
@@ -528,7 +611,7 @@ class InvoiceDetailScreen extends StatelessWidget {
             ),
 
             // Ghi chú (nếu có)
-            if (invoice.note.isNotEmpty) ...[
+            if (_invoice.note.isNotEmpty) ...[
               const SizedBox(height: 12),
               Card(
                 elevation: 1,
@@ -548,7 +631,7 @@ class InvoiceDetailScreen extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Ghi chú: ${invoice.note}',
+                          'Ghi chú: ${_invoice.note}',
                           style: const TextStyle(
                             color: Colors.black87,
                             fontStyle: FontStyle.italic,
@@ -568,10 +651,12 @@ class InvoiceDetailScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Dialog: Tạo hóa đơn mới
+// Dialog: Tạo mới hoặc Cập nhật hóa đơn
 // ─────────────────────────────────────────────────────────────
 class InvoiceFormDialog extends StatefulWidget {
-  const InvoiceFormDialog({super.key});
+  final Invoice? invoice; // null = Tạo mới, có giá trị = Cập nhật
+
+  const InvoiceFormDialog({super.key, this.invoice});
 
   @override
   State<InvoiceFormDialog> createState() => _InvoiceFormDialogState();
@@ -580,15 +665,15 @@ class InvoiceFormDialog extends StatefulWidget {
 class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
   final _formKey = GlobalKey<FormState>();
 
-  final _roomNumberController = TextEditingController();
-  final _monthYearController = TextEditingController();
-  final _roomPriceController = TextEditingController();
-  final _electricityCostController = TextEditingController(text: '0');
-  final _waterCostController = TextEditingController(text: '0');
-  final _otherCostController = TextEditingController(text: '0');
-  final _noteController = TextEditingController();
+  late final TextEditingController _roomNumberController;
+  late final TextEditingController _monthYearController;
+  late final TextEditingController _roomPriceController;
+  late final TextEditingController _electricityCostController;
+  late final TextEditingController _waterCostController;
+  late final TextEditingController _otherCostController;
+  late final TextEditingController _noteController;
 
-  String _status = 'unpaid';
+  late String _status;
   List<Room> _rooms = [];
   bool _isLoadingRooms = true;
   String? _selectedRoomValue;
@@ -596,8 +681,36 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _monthYearController.text = 'Tháng ${now.month}/${now.year}';
+    final inv = widget.invoice;
+    if (inv != null) {
+      _roomNumberController = TextEditingController(text: inv.roomNumber);
+      _monthYearController = TextEditingController(text: inv.monthYear);
+      _roomPriceController = TextEditingController(
+        text: inv.roomPrice > 0 ? inv.roomPrice.toInt().toString() : '',
+      );
+      _electricityCostController = TextEditingController(
+        text: inv.electricityCost.toInt().toString(),
+      );
+      _waterCostController = TextEditingController(
+        text: inv.waterCost.toInt().toString(),
+      );
+      _otherCostController = TextEditingController(
+        text: inv.otherCost.toInt().toString(),
+      );
+      _noteController = TextEditingController(text: inv.note);
+      _status = inv.status;
+    } else {
+      final now = DateTime.now();
+      _roomNumberController = TextEditingController();
+      _monthYearController =
+          TextEditingController(text: 'Tháng ${now.month}/${now.year}');
+      _roomPriceController = TextEditingController();
+      _electricityCostController = TextEditingController(text: '0');
+      _waterCostController = TextEditingController(text: '0');
+      _otherCostController = TextEditingController(text: '0');
+      _noteController = TextEditingController();
+      _status = 'unpaid';
+    }
     _loadRooms();
   }
 
@@ -608,6 +721,20 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
       setState(() {
         _rooms = list;
         _isLoadingRooms = false;
+
+        // Nếu đang sửa và phòng khớp với danh sách phòng trong DB, chọn sẵn
+        if (widget.invoice != null) {
+          final cur = widget.invoice!.roomNumber;
+          for (final r in list) {
+            final formatted = r.roomNumber.startsWith('Phòng')
+                ? r.roomNumber
+                : 'Phòng ${r.roomNumber}';
+            if (r.roomNumber == cur || formatted == cur) {
+              _selectedRoomValue = r.roomNumber;
+              break;
+            }
+          }
+        }
       });
     } catch (_) {
       if (!mounted) return;
@@ -668,6 +795,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     final invoice = Invoice(
+      id: widget.invoice?.id, // Giữ nguyên ID khi cập nhật
       roomNumber: _roomNumberController.text.trim(),
       monthYear: _monthYearController.text.trim(),
       roomPrice: _parseNumber(_roomPriceController.text),
@@ -683,14 +811,19 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.invoice != null;
+
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.receipt_long, color: Colors.indigo),
-          SizedBox(width: 8),
+          Icon(
+            isEditing ? Icons.edit_note : Icons.receipt_long,
+            color: Colors.indigo,
+          ),
+          const SizedBox(width: 8),
           Text(
-            'Tạo hóa đơn mới',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            isEditing ? 'Cập nhật hóa đơn' : 'Tạo hóa đơn mới',
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -926,11 +1059,12 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: Colors.indigo),
           onPressed: _submit,
-          icon: const Icon(Icons.save),
-          label: const Text('Tạo hóa đơn'),
+          icon: Icon(isEditing ? Icons.save : Icons.add),
+          label: Text(isEditing ? 'Lưu thay đổi' : 'Tạo hóa đơn'),
         ),
       ],
     );
   }
 }
+
 
