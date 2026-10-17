@@ -95,4 +95,22 @@ class InvoiceDatabase {
       );
     }).toList();
   }
+
+  // Thêm hóa đơn mới
+  Future<int> insertInvoice(Invoice invoice) async {
+    final db = _database ?? await database;
+    final txn = db.transaction('invoices', idb.idbModeReadWrite);
+    final data = invoice.toMap()..remove('id');
+
+    try {
+      final key = await txn.objectStore('invoices').add(data);
+      await txn.completed;
+      return (key as num).toInt();
+    } catch (_) {
+      try {
+        await txn.completed;
+      } catch (_) {}
+      rethrow;
+    }
+  }
 }
