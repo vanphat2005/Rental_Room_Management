@@ -241,7 +241,7 @@ class _IncidentManagementScreenState extends State<IncidentManagementScreen> {
                           _buildStat(
                             'Đang xử lý',
                             _processingCount,
-                            Icons.autorefresh,
+                            Icons.sync,
                             Colors.orange,
                           ),
                           _buildStat(
