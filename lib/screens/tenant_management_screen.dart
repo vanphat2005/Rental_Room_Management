@@ -15,6 +15,7 @@ import '../database/tenant_database.dart';
 import '../models/tenant.dart';
 import '../database/room_database.dart';
 import '../models/room.dart';
+import 'tenant_invoice_screen.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Màn hình chính: danh sách người thuê
@@ -1532,6 +1533,32 @@ class TenantDetailScreen extends StatelessWidget {
                   'Ngày trả phòng',
                   tenant.endDate.isEmpty ? 'Chưa trả phòng' : tenant.endDate,
                   Icons.event_busy,
+                ),
+                const SizedBox(height: 10),
+                const Divider(),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.receipt_long, size: 18),
+                    label: const Text('Xem hóa đơn phòng này (Tenant View)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.teal.shade800,
+                      side: BorderSide(color: Colors.teal.shade600),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TenantInvoiceScreen(
+                            roomNumber: tenant.roomNumber,
+                            tenantName: tenant.fullName,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
