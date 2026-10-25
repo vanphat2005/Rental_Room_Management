@@ -162,4 +162,24 @@ class InvoiceDatabase {
       rethrow;
     }
   }
+
+  // Lấy danh sách hóa đơn theo số phòng (Tenant)
+  Future<List<Invoice>> getInvoicesByRoom(String roomNumber) async {
+    final allInvoices = await getAllInvoices();
+    final cleanRoom = roomNumber
+        .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+        .trim()
+        .toLowerCase();
+
+    return allInvoices.where((inv) {
+      final cleanInvRoom = inv.roomNumber
+          .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+          .trim()
+          .toLowerCase();
+
+      return cleanInvRoom == cleanRoom ||
+          inv.roomNumber.trim().toLowerCase() ==
+              roomNumber.trim().toLowerCase();
+    }).toList();
+  }
 }

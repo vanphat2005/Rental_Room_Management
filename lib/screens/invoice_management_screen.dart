@@ -5,6 +5,7 @@ import '../database/invoice_database.dart';
 import '../database/room_database.dart';
 import '../models/invoice.dart';
 import '../models/room.dart';
+import 'tenant_invoice_screen.dart';
 
 class InvoiceManagementScreen extends StatefulWidget {
   const InvoiceManagementScreen({super.key});
@@ -193,6 +194,18 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            tooltip: 'Giao diện Người thuê (Tenant View)',
+            icon: const Icon(Icons.person_pin_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const TenantInvoiceScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Tải lại',
             icon: const Icon(Icons.refresh),
