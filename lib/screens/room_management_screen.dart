@@ -5,6 +5,7 @@ import '../models/room.dart';
 import 'invoice_management_screen.dart';
 
 import 'account_management_screen.dart';
+import 'login_screen.dart';
 import 'tenant_management_screen.dart'; // Long: điều hướng sang màn hình Người thuê
 
 class RoomManagementScreen extends StatefulWidget {
@@ -112,37 +113,18 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
   }
 
   Future<void> _openRoomForm({Room? room}) async {
-    final result = await showDialog<Room>(
-      context: context,
-      builder: (_) => RoomFormDialog(room: room),
-    );
+    final result = room == null
+        ? await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(builder: (_) => const AddRoomScreen()),
+          )
+        : await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(builder: (_) => EditRoomScreen(room: room)),
+          );
 
-    if (result == null || !mounted) return;
-
-    try {
-      if (room == null) {
-        await RoomDatabase.instance.insertRoom(result);
-      } else {
-        await RoomDatabase.instance.updateRoom(result);
-      }
-
-      if (!mounted) return;
-
-      _showMessage(
-        room == null ? 'Thêm phòng thành công!' : 'Cập nhật phòng thành công!',
-      );
-
+    if (result == true && mounted) {
       await _loadRooms();
-    } catch (e) {
-      if (!mounted) return;
-
-      final error = e.toString().toLowerCase();
-
-      if (error.contains('constraint') || error.contains('already exists')) {
-        _showMessage('Mã phòng đã tồn tại!');
-      } else {
-        _showMessage('Không thể lưu phòng: $e');
-      }
     }
   }
 
@@ -263,6 +245,36 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
                   builder: (_) => const AccountManagementScreen(),
                 ),
               );
+            },
+          ),
+          IconButton(
+            tooltip: 'Đăng xuất',
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Đăng xuất'),
+                  content: const Text('Bạn có chắc muốn đăng xuất?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Đăng xuất'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed == true && mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
             },
           ),
         ],
@@ -480,42 +492,73 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
   }
 }
 
-class RoomFormDialog extends StatefulWidget {
-  final Room? room;
-
-  const RoomFormDialog({super.key, this.room});
+class AddRoomScreen extends StatefulWidget {
+  const AddRoomScreen({super.key});
 
   @override
-  State<RoomFormDialog> createState() => _RoomFormDialogState();
+  State<AddRoomScreen> createState() => _AddRoomScreenState();
 }
 
-class _RoomFormDialogState extends State<RoomFormDialog> {
-  final _formKey = GlobalKey<FormState>();
+class EditRoomScreen extends StatefulWidget {
+  final Room room;
 
-  late final TextEditingController _numberController;
-  late final TextEditingController _priceController;
-  late final TextEditingController _areaController;
-  late final TextEditingController _descriptionController;
-
-  late String _status;
+  const EditRoomScreen({super.key, required this.room});
 
   @override
-  void initState() {
-    super.initState();
+  State<EditRoomScreen> createState() => _EditRoomScreenState();
+}
 
-    final room = widget.room;
-
-    _numberController = TextEditingController(text: room?.roomNumber ?? '');
-    _priceController = TextEditingController(
-      text: room?.rentPrice.toString() ?? '',
-    );
-    _areaController = TextEditingController(text: room?.area.toString() ?? '');
-    _descriptionController = TextEditingController(
-      text: room?.description ?? '',
-    );
-
-    _status = room?.status ?? 'available';
+String? _validateRoomCode(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Vui lòng nhập mã phòng';
   }
+  return null;
+}
+
+String? _validateRentPrice(String? value) {
+  final parsed = double.tryParse(value?.trim() ?? '');
+  if (parsed == null || !parsed.isFinite) {
+    return 'Vui lòng nhập giá thuê hợp lệ';
+  }
+  if (parsed < 2000000) {
+    return 'Giá thuê tối thiểu là 2,000,000 VND';
+  }
+  return null;
+}
+
+String? _validateArea(String? value) {
+  final parsed = double.tryParse(value?.trim() ?? '');
+  if (parsed == null || !parsed.isFinite) {
+    return 'Vui lòng nhập diện tích hợp lệ';
+  }
+  if (parsed < 15 || parsed > 25) {
+    return 'Diện tích phải nằm trong khoảng 15 đến 25 m²';
+  }
+  return null;
+}
+
+Future<bool> _isDuplicateRoomCode(
+  String roomCode, {
+  int? excludeId,
+}) async {
+  final rooms = await RoomDatabase.instance.getAllRooms();
+  final normalized = roomCode.trim().toLowerCase();
+
+  return rooms.any(
+    (room) =>
+        room.id != excludeId &&
+        room.roomNumber.trim().toLowerCase() == normalized,
+  );
+}
+
+class _AddRoomScreenState extends State<AddRoomScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _numberController = TextEditingController();
+  final _priceController = TextEditingController();
+  final _areaController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  String _status = 'available';
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -526,51 +569,55 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
     super.dispose();
   }
 
-  String? _requiredText(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Vui lòng nhập thông tin';
-    }
-    return null;
-  }
-
-  String? _positiveNumber(String? value) {
-    final number = double.tryParse(value?.trim() ?? '');
-
-    if (number == null || !number.isFinite || number <= 0) {
-      return 'Vui lòng nhập số lớn hơn 0';
-    }
-
-    return null;
-  }
-
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final room = Room(
-      id: widget.room?.id,
-      roomNumber: _numberController.text.trim(),
-      rentPrice: double.parse(_priceController.text.trim()),
-      area: double.parse(_areaController.text.trim()),
-      status: _status,
-      description: _descriptionController.text.trim(),
-    );
+    final roomNumber = _numberController.text.trim();
+    final price = double.tryParse(_priceController.text.trim());
+    final area = double.tryParse(_areaController.text.trim());
 
-    Navigator.pop(context, room);
+    if (price == null || area == null) {
+      setState(() => _errorMessage = 'Thông tin giá thuê hoặc diện tích không hợp lệ.');
+      return;
+    }
+
+    if (await _isDuplicateRoomCode(roomNumber)) {
+      setState(() => _errorMessage = 'Mã phòng đã tồn tại. Vui lòng chọn mã khác.');
+      return;
+    }
+
+    try {
+      await RoomDatabase.instance.insertRoom(
+        Room(
+          roomNumber: roomNumber,
+          rentPrice: price,
+          area: area,
+          status: _status,
+          description: _descriptionController.text.trim(),
+        ),
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'Không thể lưu phòng: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isEditing = widget.room != null;
-
-    return AlertDialog(
-      title: Text(isEditing ? 'Cập nhật phòng' : 'Thêm phòng mới'),
-      content: SizedBox(
-        width: 420,
-        child: SingleChildScrollView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Thêm phòng mới'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Form(
             key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ListView(
               children: [
                 TextFormField(
                   controller: _numberController,
@@ -579,31 +626,27 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
                     hintText: 'Ví dụ: P101',
                     border: OutlineInputBorder(),
                   ),
-                  validator: _requiredText,
+                  validator: _validateRoomCode,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _priceController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     labelText: 'Giá thuê mỗi tháng (VNĐ) *',
                     border: OutlineInputBorder(),
                   ),
-                  validator: _positiveNumber,
+                  validator: _validateRentPrice,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _areaController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     labelText: 'Diện tích (m²) *',
                     border: OutlineInputBorder(),
                   ),
-                  validator: _positiveNumber,
+                  validator: _validateArea,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -613,15 +656,9 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
                     border: OutlineInputBorder(),
                   ),
                   items: const [
-                    DropdownMenuItem(
-                      value: 'available',
-                      child: Text('Phòng trống'),
-                    ),
+                    DropdownMenuItem(value: 'available', child: Text('Phòng trống')),
                     DropdownMenuItem(value: 'rented', child: Text('Đang thuê')),
-                    DropdownMenuItem(
-                      value: 'maintenance',
-                      child: Text('Bảo trì'),
-                    ),
+                    DropdownMenuItem(value: 'maintenance', child: Text('Bảo trì')),
                   ],
                   onChanged: (value) {
                     if (value != null) {
@@ -639,21 +676,189 @@ class _RoomFormDialogState extends State<RoomFormDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: _save,
+                  icon: const Icon(Icons.save),
+                  label: const Text('Lưu phòng'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
               ],
             ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Hủy'),
+    );
+  }
+}
+
+class _EditRoomScreenState extends State<EditRoomScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _numberController;
+  late final TextEditingController _priceController;
+  late final TextEditingController _areaController;
+  late final TextEditingController _descriptionController;
+  late String _status;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    final room = widget.room;
+    _numberController = TextEditingController(text: room.roomNumber);
+    _priceController = TextEditingController(text: room.rentPrice.toString());
+    _areaController = TextEditingController(text: room.area.toString());
+    _descriptionController = TextEditingController(text: room.description);
+    _status = room.status;
+  }
+
+  @override
+  void dispose() {
+    _numberController.dispose();
+    _priceController.dispose();
+    _areaController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final roomNumber = _numberController.text.trim();
+    final price = double.tryParse(_priceController.text.trim());
+    final area = double.tryParse(_areaController.text.trim());
+
+    if (price == null || area == null) {
+      setState(() => _errorMessage = 'Thông tin giá thuê hoặc diện tích không hợp lệ.');
+      return;
+    }
+
+    if (await _isDuplicateRoomCode(roomNumber, excludeId: widget.room.id)) {
+      setState(() => _errorMessage = 'Mã phòng đã tồn tại. Vui lòng chọn mã khác.');
+      return;
+    }
+
+    try {
+      await RoomDatabase.instance.updateRoom(
+        Room(
+          id: widget.room.id,
+          roomNumber: roomNumber,
+          rentPrice: price,
+          area: area,
+          status: _status,
+          description: _descriptionController.text.trim(),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: Text(isEditing ? 'Lưu thay đổi' : 'Thêm phòng'),
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'Không thể cập nhật phòng: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Chỉnh sửa phòng'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              children: [
+                TextFormField(
+                  controller: _numberController,
+                  decoration: const InputDecoration(
+                    labelText: 'Mã phòng *',
+                    hintText: 'Ví dụ: P101',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: _validateRoomCode,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _priceController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Giá thuê mỗi tháng (VNĐ) *',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: _validateRentPrice,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _areaController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Diện tích (m²) *',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: _validateArea,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _status,
+                  decoration: const InputDecoration(
+                    labelText: 'Trạng thái',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'available', child: Text('Phòng trống')),
+                    DropdownMenuItem(value: 'rented', child: Text('Đang thuê')),
+                    DropdownMenuItem(value: 'maintenance', child: Text('Bảo trì')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _status = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descriptionController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Mô tả',
+                    hintText: 'Nội thất, vị trí, ghi chú...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: _save,
+                  icon: const Icon(Icons.save),
+                  label: const Text('Cập nhật phòng'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 }

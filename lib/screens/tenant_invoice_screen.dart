@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../database/invoice_database.dart';
 import '../database/room_database.dart';
 import '../models/invoice.dart';
+import 'login_screen.dart';
 
 class TenantInvoiceScreen extends StatefulWidget {
   final String? roomNumber;
@@ -33,6 +34,17 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     _initData();
   }
 
+  String _normalizeRoomNumber(String? roomNumber) {
+    final raw = (roomNumber ?? '').trim();
+    if (raw.isEmpty) {
+      return '';
+    }
+
+    return raw.toLowerCase().startsWith('phòng')
+        ? raw
+        : 'Phòng $raw';
+  }
+
   // Khởi tạo danh sách phòng và tải hóa đơn
   Future<void> _initData() async {
     setState(() => _isLoading = true);
@@ -43,20 +55,25 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
 
       final roomSet = <String>{};
       for (final r in roomsFromDb) {
-        roomSet.add(r.roomNumber);
+        final normalized = _normalizeRoomNumber(r.roomNumber);
+        if (normalized.isNotEmpty) {
+          roomSet.add(normalized);
+        }
       }
       for (final inv in allInvoices) {
-        roomSet.add(inv.roomNumber);
+        final normalized = _normalizeRoomNumber(inv.roomNumber);
+        if (normalized.isNotEmpty) {
+          roomSet.add(normalized);
+        }
       }
 
-      final roomList = roomSet.toList()..sort();
+      final roomList = roomSet.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
       // Xác định phòng mặc định được chọn
-      String? defaultRoom = widget.roomNumber;
-      if (defaultRoom == null || defaultRoom.trim().isEmpty) {
-        if (roomList.isNotEmpty) {
-          defaultRoom = roomList.first;
-        }
+      String? defaultRoom = _normalizeRoomNumber(widget.roomNumber);
+      if (defaultRoom.isEmpty && roomList.isNotEmpty) {
+        defaultRoom = roomList.first;
       }
 
       _availableRooms = roomList;
@@ -168,6 +185,36 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _loadInvoicesForSelectedRoom,
           ),
+          IconButton(
+            tooltip: 'Đăng xuất',
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Đăng xuất'),
+                  content: const Text('Bạn có chắc muốn đăng xuất?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Đăng xuất'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed == true && mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
+          ),
         ],
       ),
       body: _isLoading
@@ -204,9 +251,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                                     return DropdownMenuItem<String>(
                                       value: room,
                                       child: Text(
-                                        room.startsWith('Phòng')
-                                            ? room
-                                            : 'Phòng $room',
+                                        room,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w600,
                                         ),

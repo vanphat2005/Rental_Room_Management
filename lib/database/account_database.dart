@@ -77,6 +77,36 @@ class AccountDatabase {
     }).toList();
   }
 
+  Future<Account?> login(
+    String username,
+    String password, {
+    String? role,
+  }) async {
+    final normalizedUsername = username.trim();
+    if (normalizedUsername.isEmpty || password.isEmpty) {
+      return null;
+    }
+
+    final accounts = await getAllAccounts();
+    for (final account in accounts) {
+      final matchesUsername =
+          account.username.toLowerCase() == normalizedUsername.toLowerCase();
+      final matchesPassword = account.password == password;
+      final matchesRole = role == null || account.role == role;
+      final isActive = account.status == 'active';
+
+      if (matchesUsername && matchesPassword && matchesRole && isActive) {
+        return account;
+      }
+    }
+
+    return null;
+  }
+
+  Future<Account?> loginWithRole(String username, String password, String role) {
+    return login(username, password, role: role);
+  }
+
   Future<int> insertAccount(Account account) async {
     final db = await database;
     final txn = db.transaction('accounts', idb.idbModeReadWrite);
