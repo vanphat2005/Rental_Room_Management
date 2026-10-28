@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/room_management_screen.dart';
+import 'screens/login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +21,7 @@ class RentalRoomApp extends StatelessWidget {
           seedColor: Colors.indigo,
         ),
       ),
-      home: const RoomManagementScreen(),
+      home: const LoginScreen(),
     );
   }
 }
