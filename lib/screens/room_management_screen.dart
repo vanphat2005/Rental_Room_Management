@@ -6,6 +6,7 @@ import 'invoice_management_screen.dart';
 
 import 'account_management_screen.dart';
 import 'incident_management_screen.dart';
+import 'tenant_management_screen.dart'; // Long: điều hướng sang màn hình Người thuê
 
 class RoomManagementScreen extends StatefulWidget {
   const RoomManagementScreen({super.key});
@@ -237,6 +238,20 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
             tooltip: 'Tải lại',
             onPressed: _loadRooms,
             icon: const Icon(Icons.refresh),
+          ),
+
+          // Long: Nút điều hướng sang Quản lý người thuê
+          IconButton(
+            tooltip: 'Người thuê',
+            icon: const Icon(Icons.people),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const TenantManagementScreen(),
+                ),
+              );
+            },
           ),
 
           IconButton(

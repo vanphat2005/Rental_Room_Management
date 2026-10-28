@@ -95,4 +95,91 @@ class InvoiceDatabase {
       );
     }).toList();
   }
+
+  // Thêm hóa đơn mới
+  Future<int> insertInvoice(Invoice invoice) async {
+    final db = _database ?? await database;
+    final txn = db.transaction('invoices', idb.idbModeReadWrite);
+    final data = invoice.toMap()..remove('id');
+
+    try {
+      final key = await txn.objectStore('invoices').add(data);
+      await txn.completed;
+      return (key as num).toInt();
+    } catch (_) {
+      try {
+        await txn.completed;
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  // Cập nhật hóa đơn
+  Future<int> updateInvoice(Invoice invoice) async {
+    if (invoice.id == null) {
+      throw ArgumentError('Invoice ID không được để trống khi cập nhật.');
+    }
+    final db = _database ?? await database;
+    final txn = db.transaction('invoices', idb.idbModeReadWrite);
+
+    try {
+      final store = txn.objectStore('invoices');
+      final existing = await store.getObject(invoice.id!);
+      if (existing == null) {
+        await txn.completed;
+        return 0;
+      }
+      await store.put(invoice.toMap());
+      await txn.completed;
+      return 1;
+    } catch (_) {
+      try {
+        await txn.completed;
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  // Xóa hóa đơn
+  Future<int> deleteInvoice(int id) async {
+    final db = _database ?? await database;
+    final txn = db.transaction('invoices', idb.idbModeReadWrite);
+
+    try {
+      final store = txn.objectStore('invoices');
+      final existing = await store.getObject(id);
+      if (existing == null) {
+        await txn.completed;
+        return 0;
+      }
+      await store.delete(id);
+      await txn.completed;
+      return 1;
+    } catch (_) {
+      try {
+        await txn.completed;
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  // Lấy danh sách hóa đơn theo số phòng (Tenant)
+  Future<List<Invoice>> getInvoicesByRoom(String roomNumber) async {
+    final allInvoices = await getAllInvoices();
+    final cleanRoom = roomNumber
+        .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+        .trim()
+        .toLowerCase();
+
+    return allInvoices.where((inv) {
+      final cleanInvRoom = inv.roomNumber
+          .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+          .trim()
+          .toLowerCase();
+
+      return cleanInvRoom == cleanRoom ||
+          inv.roomNumber.trim().toLowerCase() ==
+              roomNumber.trim().toLowerCase();
+    }).toList();
+  }
 }
