@@ -122,29 +122,7 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
   // Cập nhật trạng thái phòng trong RoomDatabase
   Future<void> _updateRoomStatus(String roomNumber, String newStatus) async {
     try {
-      final rooms = await RoomDatabase.instance.getAllRooms();
-      final cleanNum = roomNumber
-          .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
-          .trim();
-      for (final r in rooms) {
-        if (r.roomNumber == roomNumber ||
-            r.roomNumber == cleanNum ||
-            'Phòng ${r.roomNumber}' == roomNumber) {
-          if (r.status != newStatus) {
-            await RoomDatabase.instance.updateRoom(
-              Room(
-                id: r.id,
-                roomNumber: r.roomNumber,
-                rentPrice: r.rentPrice,
-                area: r.area,
-                status: newStatus,
-                description: r.description,
-              ),
-            );
-          }
-          break;
-        }
-      }
+      await RoomDatabase.instance.updateStatusByRoomNumber(roomNumber, newStatus);
     } catch (_) {}
   }
 

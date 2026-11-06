@@ -148,6 +148,42 @@ class RoomDatabase {
     }
   }
 
+  Future<void> updateStatusByRoomNumber(
+    String roomNumber,
+    String newStatus,
+  ) async {
+    final rooms = await getAllRooms();
+    final normalizedTarget = roomNumber
+        .trim()
+        .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+        .trim();
+
+    for (final room in rooms) {
+      final normalizedRoom = room.roomNumber
+          .trim()
+          .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+          .trim();
+
+      final matchesRoom = room.roomNumber == roomNumber ||
+          normalizedRoom == normalizedTarget ||
+          'Phòng $normalizedRoom' == roomNumber ||
+          'Phòng $normalizedTarget' == room.roomNumber;
+
+      if (matchesRoom && room.status != newStatus) {
+        await updateRoom(
+          Room(
+            id: room.id,
+            roomNumber: room.roomNumber,
+            rentPrice: room.rentPrice,
+            area: room.area,
+            status: newStatus,
+            description: room.description,
+          ),
+        );
+      }
+    }
+  }
+
   Future<List<Room>> searchRooms(String keyword) async {
     final rooms = await getAllRooms();
     final query = keyword.trim().toLowerCase();
