@@ -1,15 +1,20 @@
+// ============================================================
+// Author : Le Van Nguyen - CE181235
+// Feature: Invoice Management
+// Model  : Invoice Data Model
+// ============================================================
 
-
+/// Thực thể đại diện cho hóa đơn thanh toán tiền phòng và dịch vụ.
 class Invoice {
   final int? id;
-  final String roomNumber;       // Mã hoặc tên phòng (VD: Phòng 101)
-  final String monthYear;        // Tháng/Kỳ hóa đơn (VD: Tháng 10/2026)
-  final double roomPrice;        // Tiền thuê phòng (VD: 2.500.000)
-  final double electricityCost;  // Tiền điện (VD: 400.000)
-  final double waterCost;        // Tiền nước (VD: 150.000)
-  final double otherCost;        // Phí dịch vụ khác như rác, wifi (nếu có)
-  final String status;           // 'unpaid' (Chưa thanh toán) hoặc 'paid' (Đã thanh toán)
-  final String note;             // Ghi chú thêm
+  final String roomNumber;       // Tên hoặc số phòng (VD: Phòng 101)
+  final String monthYear;        // Kỳ thu phí (VD: Tháng 10/2026)
+  final double roomPrice;        // Tiền thuê phòng (VNĐ)
+  final double electricityCost;  // Tiền điện tiêu thụ (VNĐ)
+  final double waterCost;        // Tiền nước sinh hoạt (VNĐ)
+  final double otherCost;        // Phí dịch vụ phát sinh khác: rác, wifi... (VNĐ)
+  final String status;           // Trạng thái thu: 'unpaid' (chưa thu/chưa trả) hoặc 'paid' (đã thu/đã trả)
+  final String note;             // Ghi chú hoặc lời nhắn đính kèm
 
   const Invoice({
     this.id,
@@ -23,10 +28,11 @@ class Invoice {
     this.note = '',
   });
 
-  // Tính tổng tiền tự động
+  /// Tính tổng tiền tự động từ các khoản phí đơn lẻ.
+  /// Thiết kế dưới dạng getter tính toán động để loại bỏ nguy cơ lệch số liệu (inconsistent data).
   double get totalAmount => roomPrice + electricityCost + waterCost + otherCost;
 
-  // Chuyển đối tượng thành Map để lưu vào cơ sở dữ liệu
+  /// Chuyển đối tượng sang Map để ghi dữ liệu vào IndexedDB.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -41,7 +47,8 @@ class Invoice {
     };
   }
 
-  // Khởi tạo đối tượng từ dữ liệu Map lấy từ cơ sở dữ liệu
+  /// Khởi tạo đối tượng Invoice từ Map đọc từ IndexedDB.
+  /// Ép kiểu số an toàn sang double để tránh lỗi kiểu dữ liệu runtime.
   factory Invoice.fromMap(Map<String, dynamic> map) {
     return Invoice(
       id: map['id'] as int?,
@@ -56,7 +63,7 @@ class Invoice {
     );
   }
 
-  // Tạo bản sao mới khi cần thay đổi một số thông tin (như cập nhật trạng thái)
+  /// Tạo bản sao đối tượng với các thuộc tính được cập nhật (Immutable Pattern).
   Invoice copyWith({
     int? id,
     String? roomNumber,
