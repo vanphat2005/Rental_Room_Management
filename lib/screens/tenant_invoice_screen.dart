@@ -29,8 +29,7 @@ class TenantInvoiceScreen extends StatefulWidget {
 
 class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
   List<Invoice> _invoices = [];
-  List<String> _availableRooms = [];
-  String? _selectedRoom;
+  String _selectedRoom = '';
   bool _isLoading = true;
   String _filterStatus = 'all'; // 'all', 'unpaid', 'paid'
   String _searchQuery = '';
@@ -53,38 +52,11 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
         : 'Phòng $raw';
   }
 
-  /// Nạp danh sách các phòng và tự động tải hóa đơn cho phòng tương ứng của khách thuê.
+  /// Tự động tải hóa đơn cho phòng tương ứng của khách thuê.
   Future<void> _initData() async {
     setState(() => _isLoading = true);
     try {
-      final roomsFromDb = await RoomDatabase.instance.getAllRooms();
-      final allInvoices = await InvoiceDatabase.instance.getAllInvoices();
-
-      final roomSet = <String>{};
-      for (final r in roomsFromDb) {
-        final normalized = _normalizeRoomNumber(r.roomNumber);
-        if (normalized.isNotEmpty) {
-          roomSet.add(normalized);
-        }
-      }
-      for (final inv in allInvoices) {
-        final normalized = _normalizeRoomNumber(inv.roomNumber);
-        if (normalized.isNotEmpty) {
-          roomSet.add(normalized);
-        }
-      }
-
-      final roomList = roomSet.toList()
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-      String? defaultRoom = _normalizeRoomNumber(widget.roomNumber);
-      if (defaultRoom.isEmpty && roomList.isNotEmpty) {
-        defaultRoom = roomList.first;
-      }
-
-      _availableRooms = roomList;
-      _selectedRoom = defaultRoom;
-
+      _selectedRoom = _normalizeRoomNumber(widget.roomNumber);
       await _loadInvoicesForSelectedRoom();
     } catch (e) {
       if (!mounted) return;
@@ -227,11 +199,11 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Bộ chọn phòng đang thuê
+                // Thông tin phòng đang thuê của khách
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
-                    vertical: 10,
+                    vertical: 12,
                   ),
                   color: Colors.indigo.shade50,
                   child: Row(
@@ -239,7 +211,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                       const Icon(Icons.door_front_door, color: Colors.indigo),
                       const SizedBox(width: 8),
                       const Text(
-                        'Phòng:',
+                        'Phòng của bạn:',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.black87,
@@ -247,32 +219,18 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _availableRooms.isEmpty
-                            ? const Text('Chưa có thông tin phòng')
-                            : DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: _selectedRoom,
-                                  isExpanded: true,
-                                  items: _availableRooms.map((room) {
-                                    return DropdownMenuItem<String>(
-                                      value: room,
-                                      child: Text(
-                                        room,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (newRoom) {
-                                    if (newRoom != null &&
-                                        newRoom != _selectedRoom) {
-                                      setState(() => _selectedRoom = newRoom);
-                                      _loadInvoicesForSelectedRoom();
-                                    }
-                                  },
-                                ),
-                              ),
+                        child: Text(
+                          _selectedRoom.isNotEmpty
+                              ? _selectedRoom
+                              : 'Chưa được phân phòng',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: _selectedRoom.isNotEmpty
+                                ? Colors.indigo.shade900
+                                : Colors.red.shade700,
+                          ),
+                        ),
                       ),
                     ],
                   ),

@@ -72,8 +72,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
     switch (status) {
       case 'available':
         return 'Phòng trống';
+      case 'shared':
+        return 'Còn chỗ ghép';
       case 'rented':
-        return 'Đang thuê';
+        return 'Đang thuê (Đủ người)';
       case 'maintenance':
         return 'Bảo trì';
       default:
@@ -85,6 +87,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
     switch (status) {
       case 'available':
         return Colors.green;
+      case 'shared':
+        return Colors.teal;
       case 'rented':
         return Colors.blue;
       case 'maintenance':
@@ -364,8 +368,12 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
                             child: Text('Phòng trống'),
                           ),
                           DropdownMenuItem(
+                            value: 'shared',
+                            child: Text('Còn chỗ ghép'),
+                          ),
+                          DropdownMenuItem(
                             value: 'rented',
-                            child: Text('Đang thuê'),
+                            child: Text('Đang thuê (Đủ người)'),
                           ),
                           DropdownMenuItem(
                             value: 'maintenance',
@@ -434,7 +442,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(_money(room.rentPrice)),
-                                      Text('Diện tích: ${room.area} m²'),
+                                      Text('Diện tích: ${room.area} m² • Sức chứa: ${room.maxOccupants} người'),
                                       if (room.description.isNotEmpty)
                                         Text(room.description),
                                       const SizedBox(height: 6),

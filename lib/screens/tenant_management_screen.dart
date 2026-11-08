@@ -1,20 +1,24 @@
 // ============================================================
 // File   : lib/screens/tenant_management_screen.dart
-// Author : Long
+// Author : Long (Đã tối ưu: Tính thời hạn thuê tự động, bắt lỗi chuẩn từng trường)
 // Mô tả  : Màn hình Quản lý Người thuê phòng
 //          - Xem danh sách người thuê (View Tenant List)
-//          - Thêm người thuê mới (Add Tenant)
-//          - Sửa / Xóa thông tin người thuê
+//          - Thêm người thuê mới (Add Tenant - Tự động tạo Account)
+//          - Sửa / Xóa người thuê (Delete Tenant - Đồng bộ trạng thái an toàn)
+//          - Đổi trạng thái thuê (Update Tenant Status - 1 chạm)
 // ============================================================
 
 // BẮT ĐẦU CODE - Long
 
 import 'package:flutter/material.dart';
 
-import '../database/tenant_database.dart';
-import '../models/tenant.dart';
+import '../database/account_database.dart';
+import '../database/invoice_database.dart';
 import '../database/room_database.dart';
+import '../database/tenant_database.dart';
+import '../models/account.dart';
 import '../models/room.dart';
+import '../models/tenant.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Màn hình chính: danh sách người thuê
@@ -83,6 +87,32 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // Chuẩn hóa và đồng bộ trạng thái phòng an toàn:
+  // Nếu phòng vẫn còn ít nhất 1 người thuê đang 'active' thì giữ 'rented'.
+  // Chỉ khi không còn ai thuê mới chuyển về 'available'.
+  Future<void> _syncRoomStatus(String roomNumber) async {
+    try {
+      final allTenants = await TenantDatabase.instance.getAllTenants();
+      final cleanTarget = roomNumber
+          .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+          .trim()
+          .toLowerCase();
+
+      final hasActiveTenant = allTenants.any((t) {
+        if (t.status != 'active') return false;
+        final cleanRoom = t.roomNumber
+            .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
+            .trim()
+            .toLowerCase();
+        return cleanRoom == cleanTarget ||
+            t.roomNumber.trim().toLowerCase() == roomNumber.trim().toLowerCase();
+      });
+
+      final newStatus = hasActiveTenant ? 'rented' : 'available';
+      await RoomDatabase.instance.updateStatusByRoomNumber(roomNumber, newStatus);
+    } catch (_) {}
+  }
+
   // Mở form Thêm / Sửa người thuê
   Future<void> _openTenantForm({Tenant? tenant}) async {
     final result = await showDialog<Tenant>(
@@ -94,45 +124,134 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
 
     try {
       if (tenant == null) {
+        // [Add Tenant] Thêm người thuê mới
         await TenantDatabase.instance.insertTenant(result);
-        // Cập nhật trạng thái phòng sang 'rented'
-        await _updateRoomStatus(result.roomNumber, 'rented');
-        _showMessage('Thêm người thuê thành công!');
+
+        // Tự động tạo tài khoản đăng nhập tương ứng trong AccountDatabase nếu chưa có
+        try {
+          final accounts = await AccountDatabase.instance.getAllAccounts();
+          final exists = accounts.any(
+            (a) => a.username.toLowerCase() == result.username.toLowerCase(),
+          );
+          if (!exists) {
+            await AccountDatabase.instance.insertAccount(
+              Account(
+                username: result.username,
+                password: '123', // Mật khẩu khởi tạo mặc định
+                fullName: result.fullName,
+                role: 'tenant',
+                phone: result.phone,
+                email: result.email,
+                status: 'active',
+              ),
+            );
+          }
+        } catch (_) {}
+
+        // Đồng bộ trạng thái phòng mới sang 'rented'
+        await _syncRoomStatus(result.roomNumber);
+        _showMessage('Thêm người thuê thành công! (Mật khẩu đăng nhập mặc định: 123)');
       } else {
+        // [Update Tenant] Cập nhật thông tin
         await TenantDatabase.instance.updateTenant(result);
-        // Nếu đổi phòng thì giải phóng phòng cũ và chuyển phòng mới sang rented
+
+        // Nếu có chuyển phòng, đồng bộ trạng thái cả phòng cũ lẫn phòng mới
         if (tenant.roomNumber != result.roomNumber) {
-          await _updateRoomStatus(tenant.roomNumber, 'available');
-          await _updateRoomStatus(result.roomNumber, 'rented');
+          await _syncRoomStatus(tenant.roomNumber);
         }
-        _showMessage('Cập nhật thông tin thành công!');
+        await _syncRoomStatus(result.roomNumber);
+
+        _showMessage('Cập nhật thông tin người thuê thành công!');
       }
+
       await _loadTenants();
     } catch (e) {
       final error = e.toString().toLowerCase();
       if (error.contains('constraint') || error.contains('already exists')) {
-        _showMessage('Tài khoản (username) đã được sử dụng!');
+        _showMessage('Tên đăng nhập (username) đã được sử dụng!');
       } else {
         _showMessage('Không thể lưu thông tin: $e');
       }
     }
   }
 
-  // Cập nhật trạng thái phòng trong RoomDatabase
-  Future<void> _updateRoomStatus(String roomNumber, String newStatus) async {
+  // [Update Tenant Status] Chức năng đổi nhanh trạng thái người thuê (Active <-> Inactive)
+  Future<void> _toggleTenantStatus(Tenant tenant) async {
+    final isCurrentlyActive = tenant.status == 'active';
+    final newStatus = isCurrentlyActive ? 'inactive' : 'active';
+    final now = DateTime.now();
+    final todayStr =
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+
+    final updated = tenant.copyWith(
+      status: newStatus,
+      endDate: isCurrentlyActive ? todayStr : tenant.endDate,
+    );
+
     try {
-      await RoomDatabase.instance.updateStatusByRoomNumber(roomNumber, newStatus);
-    } catch (_) {}
+      await TenantDatabase.instance.updateTenant(updated);
+      await _syncRoomStatus(tenant.roomNumber);
+
+      if (!mounted) return;
+      _showMessage(newStatus == 'inactive'
+          ? 'Đã ghi nhận trả phòng cho "${tenant.fullName}"'
+          : 'Đã kích hoạt lại trạng thái thuê cho "${tenant.fullName}"');
+
+      await _loadTenants();
+    } catch (e) {
+      _showMessage('Không thể đổi trạng thái: $e');
+    }
   }
 
-  // Xóa người thuê sau khi xác nhận
+  // [Delete Tenant] Xóa người thuê kèm cảnh báo công nợ và kiểm tra an toàn
   Future<void> _deleteTenant(Tenant tenant) async {
+    bool hasUnpaidInvoices = false;
+    try {
+      final invoices =
+          await InvoiceDatabase.instance.getInvoicesByRoom(tenant.roomNumber);
+      hasUnpaidInvoices = invoices.any((inv) => inv.status == 'unpaid');
+    } catch (_) {}
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Xóa người thuê'),
-        content: Text(
-          'Bạn có chắc muốn xóa người thuê "${tenant.fullName}" không?',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bạn có chắc muốn xóa người thuê "${tenant.fullName}" khỏi hệ thống?',
+            ),
+            if (hasUnpaidInvoices) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        color: Colors.red.shade700, size: 22),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Cảnh báo: ${tenant.roomNumber} đang có hóa đơn chưa thanh toán!',
+                        style: TextStyle(
+                          color: Colors.red.shade900,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -152,8 +271,8 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
 
     try {
       await TenantDatabase.instance.deleteTenant(tenant.id!);
-      // Trả lại trạng thái phòng là available khi xóa người thuê
-      await _updateRoomStatus(tenant.roomNumber, 'available');
+      await _syncRoomStatus(tenant.roomNumber);
+
       if (!mounted) return;
       _showMessage('Đã xóa người thuê ${tenant.fullName}');
       await _loadTenants();
@@ -167,9 +286,12 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => TenantDetailScreen(tenant: tenant),
+        builder: (_) => TenantDetailScreen(
+          tenant: tenant,
+          onStatusToggle: () => _toggleTenantStatus(tenant),
+        ),
       ),
-    );
+    ).then((_) => _loadTenants());
   }
 
   // Widget thẻ thống kê nhỏ
@@ -315,7 +437,7 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // ── Danh sách người thuê ──
+                // ── [View Tenant List] Danh sách người thuê ──
                 Expanded(
                   child: list.isEmpty
                       ? Center(
@@ -355,7 +477,6 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                               margin: const EdgeInsets.only(bottom: 10),
                               child: ListTile(
                                 contentPadding: const EdgeInsets.all(12),
-                                // Avatar icon người thuê
                                 leading: CircleAvatar(
                                   backgroundColor: isActive
                                       ? Colors.indigo.shade100
@@ -379,7 +500,6 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // Tên đăng nhập
                                       Text(
                                         '@${tenant.username}',
                                         style: TextStyle(
@@ -388,18 +508,19 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 2),
-                                      // Số phòng và SĐT
                                       Text(
                                         '${tenant.roomNumber}  •  SĐT: ${tenant.phone}',
                                         style: const TextStyle(fontSize: 13),
                                       ),
-                                      // CCCD
+                                      // Hiển thị thời hạn thuê rõ ràng
                                       Text(
-                                        'CCCD: ${tenant.cccd}',
-                                        style: const TextStyle(fontSize: 12),
+                                        'Bắt đầu: ${tenant.startDate}  •  ${tenant.isLongTerm ? "Thuê dài hạn (Chưa có ngày trả)" : "Hạn trả: ${tenant.endDate}"}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                        ),
                                       ),
                                       const SizedBox(height: 6),
-                                      // Badge trạng thái
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
@@ -431,19 +552,20 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                     ],
                                   ),
                                 ),
-                                // Menu hành động
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (action) {
                                     if (action == 'detail') {
                                       _viewDetail(tenant);
+                                    } else if (action == 'toggle_status') {
+                                      _toggleTenantStatus(tenant);
                                     } else if (action == 'edit') {
                                       _openTenantForm(tenant: tenant);
                                     } else if (action == 'delete') {
                                       _deleteTenant(tenant);
                                     }
                                   },
-                                  itemBuilder: (_) => const [
-                                    PopupMenuItem(
+                                  itemBuilder: (_) => [
+                                    const PopupMenuItem(
                                       value: 'detail',
                                       child: Row(
                                         children: [
@@ -454,6 +576,27 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                       ),
                                     ),
                                     PopupMenuItem(
+                                      value: 'toggle_status',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isActive
+                                                ? Icons.person_off_outlined
+                                                : Icons.how_to_reg_outlined,
+                                            color: isActive
+                                                ? Colors.orange
+                                                : Colors.green,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            isActive
+                                                ? 'Xác nhận trả phòng'
+                                                : 'Kích hoạt lại thuê',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
                                       value: 'edit',
                                       child: Row(
                                         children: [
@@ -463,7 +606,7 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                         ],
                                       ),
                                     ),
-                                    PopupMenuItem(
+                                    const PopupMenuItem(
                                       value: 'delete',
                                       child: Row(
                                         children: [
@@ -482,7 +625,6 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
                                     ),
                                   ],
                                 ),
-                                // Tap để xem chi tiết
                                 onTap: () => _viewDetail(tenant),
                               ),
                             );
@@ -497,13 +639,13 @@ class _TenantManagementScreenState extends State<TenantManagementScreen> {
 
 // ─────────────────────────────────────────────────────────────
 // Dialog: Form Thêm / Sửa người thuê
-// Sửa đổi bởi Long:
-// - Chọn số phòng từ danh sách phòng trống (status == 'available')
-// - Chọn Ngày bắt đầu thuê dạng lịch và phân chia Ngày / Tháng / Năm
-// - Bỏ chọn Trạng thái phòng, thay bằng Ngày trả phòng cùng giao diện
+// Tối ưu hóa:
+// - Chọn số tháng thuê (1, 2, 3, 6, 9, 12, 24 hoặc Dài hạn)
+// - Tự động tính ngày trả phòng dựa trên ngày bắt đầu và số tháng thuê
+// - Bắt lỗi chi tiết chuẩn từng trường (Full name không số, SĐT 10 số bắt đầu bằng 0...)
 // ─────────────────────────────────────────────────────────────
 class TenantFormDialog extends StatefulWidget {
-  final Tenant? tenant; // null = Thêm mới, có giá trị = Sửa
+  final Tenant? tenant;
 
   const TenantFormDialog({super.key, this.tenant});
 
@@ -513,8 +655,8 @@ class TenantFormDialog extends StatefulWidget {
 
 class _TenantFormDialogState extends State<TenantFormDialog> {
   final _formKey = GlobalKey<FormState>();
+  bool _autoValidate = false;
 
-  // Controllers cho từng trường nhập liệu
   late final TextEditingController _usernameController;
   late final TextEditingController _fullNameController;
   late final TextEditingController _cccdController;
@@ -525,23 +667,22 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
   late final TextEditingController _emergencyPhoneController;
   late final TextEditingController _noteController;
 
-  // Phòng trống để chọn (Long)
   List<Room> _availableRooms = [];
   bool _isLoadingRooms = true;
   String? _selectedRoomNumber;
 
-  // Ngày bắt đầu và Ngày trả phòng (Long)
-  DateTime? _startDate;
-  DateTime? _endDate;
-  String? _startDateError;
-  String? _endDateError;
+  DateTime _startDate = DateTime.now();
+
+  // Số tháng thuê (0 = Thuê dài hạn / Không thời hạn)
+  int _rentalMonths = 12;
+
+  late String _status;
 
   @override
   void initState() {
     super.initState();
     final t = widget.tenant;
 
-    // Khởi tạo giá trị mặc định (nếu Sửa thì điền sẵn dữ liệu cũ)
     _usernameController = TextEditingController(text: t?.username ?? '');
     _fullNameController = TextEditingController(text: t?.fullName ?? '');
     _cccdController = TextEditingController(text: t?.cccd ?? '');
@@ -553,25 +694,53 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
     _emergencyPhoneController =
         TextEditingController(text: t?.emergencyPhone ?? '');
     _noteController = TextEditingController(text: t?.note ?? '');
+    _status = t?.status ?? 'active';
 
-    // Parse ngày bắt đầu và ngày trả phòng (Long)
     _startDate = _parseDate(t?.startDate) ?? DateTime.now();
-    _endDate = _parseDate(t?.endDate);
 
-    // Tải danh sách phòng trống
+    // Khởi tạo số tháng thuê nếu đang chỉnh sửa
+    if (t != null) {
+      if (t.isLongTerm) {
+        _rentalMonths = 0; // Thuê dài hạn
+      } else {
+        final parsedEnd = _parseDate(t.endDate);
+        if (parsedEnd != null) {
+          final diffMonths = (parsedEnd.year - _startDate.year) * 12 +
+              (parsedEnd.month - _startDate.month);
+          _rentalMonths = diffMonths > 0 ? diffMonths : 12;
+        } else {
+          _rentalMonths = 12;
+        }
+      }
+    }
+
     _loadAvailableRooms();
   }
 
-  // Chuyển chuỗi dd/MM/yyyy thành DateTime (Long)
+  // Thuật toán cộng N tháng chính xác, xử lý ngày cuối tháng (VD: 31/01 + 1 tháng = 28/02)
+  DateTime _addMonths(DateTime date, int months) {
+    final newYear = date.year + ((date.month + months - 1) ~/ 12);
+    final newMonth = ((date.month + months - 1) % 12) + 1;
+    final daysInNewMonth = DateTime(newYear, newMonth + 1, 0).day;
+    final newDay = date.day > daysInNewMonth ? daysInNewMonth : date.day;
+    return DateTime(newYear, newMonth, newDay);
+  }
+
+  // Ngày trả phòng dự kiến được tính tự động
+  DateTime? get _calculatedEndDate {
+    if (_rentalMonths <= 0) return null; // 0 = Dài hạn
+    return _addMonths(_startDate, _rentalMonths);
+  }
+
   DateTime? _parseDate(String? str) {
     if (str == null || str.trim().isEmpty) return null;
     try {
       if (str.contains('/')) {
         final parts = str.split('/');
         if (parts.length == 3) {
-          final d = int.parse(parts[0]);
-          final m = int.parse(parts[1]);
-          final y = int.parse(parts[2]);
+          final d = int.parse(parts[0].trim());
+          final m = int.parse(parts[1].trim());
+          final y = int.parse(parts[2].trim());
           return DateTime(y, m, d);
         }
       } else if (str.contains('-')) {
@@ -581,7 +750,6 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
     return null;
   }
 
-  // Định dạng DateTime thành dd/MM/yyyy (Long)
   String _formatDate(DateTime? dt) {
     if (dt == null) return '';
     final d = dt.day.toString().padLeft(2, '0');
@@ -590,7 +758,6 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
     return '$d/$m/$y';
   }
 
-  // Tải các phòng có trạng thái trống từ RoomDatabase (Long)
   Future<void> _loadAvailableRooms() async {
     try {
       final allRooms = await RoomDatabase.instance.getAllRooms();
@@ -599,47 +766,14 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
           .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
           .trim();
 
-      // Lọc các phòng có trạng thái 'available'
-      final filtered = allRooms.where((r) {
-        if (r.status == 'available') return true;
-        // Nếu đang sửa thì giữ lại phòng hiện tại của khách
-        if (cleanCurrent.isNotEmpty) {
-          final cleanR = r.roomNumber
-              .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
-              .trim();
-          if (cleanR == cleanCurrent || r.roomNumber == currentRoom) {
-            return true;
-          }
-        }
-        return false;
-      }).toList();
-
-      // Nếu đang sửa nhưng phòng không có trong database, thêm tạm để hiển thị
-      if (cleanCurrent.isNotEmpty &&
-          !filtered.any((r) =>
-              r.roomNumber == currentRoom ||
-              r.roomNumber.replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '').trim() == cleanCurrent)) {
-        filtered.insert(
-          0,
-          Room(
-            roomNumber: cleanCurrent.isEmpty ? currentRoom : cleanCurrent,
-            rentPrice: 0,
-            area: 0,
-            status: 'rented',
-            description: 'Phòng hiện tại',
-          ),
-        );
-      }
-
       if (!mounted) return;
 
       setState(() {
-        _availableRooms = filtered;
+        _availableRooms = allRooms;
         _isLoadingRooms = false;
 
-        // Chọn phòng ban đầu nếu đang sửa
         if (cleanCurrent.isNotEmpty) {
-          for (final r in filtered) {
+          for (final r in allRooms) {
             final cleanR = r.roomNumber
                 .replaceFirst(RegExp(r'^phòng\s*', caseSensitive: false), '')
                 .trim();
@@ -648,6 +782,7 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
               break;
             }
           }
+          _selectedRoomNumber ??= currentRoom;
         }
       });
     } catch (_) {
@@ -670,26 +805,111 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
     super.dispose();
   }
 
-  // Validator: bắt buộc nhập
-  String? _required(String? value) {
+  // ═══════════════════════════════════════════════════════════
+  // CÁC HÀM VALIDATOR BẮT LỖI CHUẨN XÁC & CHI TIẾT
+  // ═══════════════════════════════════════════════════════════
+
+  // 1. Validator: Tên đăng nhập
+  String? _validateUsername(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Vui lòng nhập thông tin này';
+      return 'Vui lòng nhập tên đăng nhập';
+    }
+    final clean = value.trim();
+    if (clean.contains(' ')) {
+      return 'Tên đăng nhập không được chứa khoảng trắng';
+    }
+    if (clean.length < 3) {
+      return 'Tên đăng nhập phải có ít nhất 3 ký tự';
+    }
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(clean)) {
+      return 'Tên đăng nhập chỉ gồm chữ cái không dấu, số và dấu gạch dưới (_)';
     }
     return null;
   }
 
-  // Validator: CCCD phải đủ 12 chữ số
+  // 2. Validator: Họ và tên (KHÔNG ĐƯỢC CÓ SỐ, chỉ chấp nhận chữ cái)
+  String? _validateFullName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Vui lòng nhập họ và tên';
+    }
+    final clean = value.trim();
+    if (RegExp(r'\d').hasMatch(clean)) {
+      return 'Họ và tên không được chứa chữ số';
+    }
+    // Regex hỗ trợ chữ cái tiếng Việt có dấu và không dấu
+    final vietnameseLetterRegex = RegExp(
+      r'^[a-zA-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠàáâãèéêìíòóôõùúăđĩũơƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂưăạảấầẩẫậắằẳẵặẹẻẽềềểỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪễệỉịọỏốồổỗộớờởỡợụủứừỬỮỰỲỴÝỶỸửữựỳỵýỷỹ\s]+$',
+    );
+    if (!vietnameseLetterRegex.hasMatch(clean)) {
+      return 'Họ và tên chỉ được chứa chữ cái và khoảng trắng';
+    }
+    if (clean.length < 3) {
+      return 'Họ và tên phải có tối thiểu 3 ký tự';
+    }
+    return null;
+  }
+
+  // 3. Validator: Số điện thoại (ĐÚNG 10 SỐ, BẮT ĐẦU BẰNG 0, KHÔNG CHỨA CHỮ)
+  String? _validatePhone(String? value, {bool isRequired = true}) {
+    if (value == null || value.trim().isEmpty) {
+      return isRequired ? 'Vui lòng nhập số điện thoại' : null;
+    }
+    final clean = value.trim();
+    if (RegExp(r'[a-zA-Z]').hasMatch(clean)) {
+      return 'Số điện thoại không được chứa chữ cái';
+    }
+    if (!RegExp(r'^\d+$').hasMatch(clean)) {
+      return 'Số điện thoại chỉ được chứa các ký tự chữ số';
+    }
+    if (!clean.startsWith('0')) {
+      return 'Số điện thoại phải bắt đầu bằng số 0';
+    }
+    if (clean.length != 10) {
+      return 'Số điện thoại phải gồm đúng 10 chữ số (hiện có ${clean.length} số)';
+    }
+    return null;
+  }
+
+  // 4. Validator: Số CCCD / CMND (ĐÚNG 12 SỐ, CHỈ CHỨA SỐ)
   String? _validateCccd(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Vui lòng nhập số CCCD';
+      return 'Vui lòng nhập số CCCD / CMND';
     }
-    if (!RegExp(r'^\d{12}$').hasMatch(value.trim())) {
-      return 'CCCD phải gồm đúng 12 chữ số';
+    final clean = value.trim();
+    if (!RegExp(r'^\d+$').hasMatch(clean)) {
+      return 'Số CCCD chỉ được chứa chữ số';
+    }
+    if (clean.length != 12) {
+      return 'Số CCCD phải gồm đúng 12 chữ số (hiện có ${clean.length} số)';
     }
     return null;
   }
 
-  // Định dạng số tiền
+  // 5. Validator: Email (Tùy chọn, nhưng nếu nhập thì phải chuẩn)
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    final clean = value.trim();
+    final emailRegex = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,7}$');
+    if (!emailRegex.hasMatch(clean)) {
+      return 'Email không hợp lệ (Ví dụ: tenant101@gmail.com)';
+    }
+    return null;
+  }
+
+  // 6. Validator: Người liên hệ khẩn cấp (Không được có số)
+  String? _validateEmergencyContact(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    final clean = value.trim();
+    if (RegExp(r'\d').hasMatch(clean)) {
+      return 'Tên người liên hệ không được chứa chữ số';
+    }
+    return null;
+  }
+
   String _money(double value) {
     final digits = value.toInt().toString();
     final buffer = StringBuffer();
@@ -702,260 +922,36 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
     return '${buffer.toString()} đ/tháng';
   }
 
-  // Hiển thị tên phòng kèm thông tin giá trong dropdown (Long)
   String _formatRoomDisplay(Room room) {
     final prefix = room.roomNumber.toLowerCase().startsWith('phòng')
         ? room.roomNumber
         : 'Phòng ${room.roomNumber}';
     final priceStr = room.rentPrice > 0 ? ' - ${_money(room.rentPrice)}' : '';
-    final isAvail = room.status == 'available';
-    final statusStr = isAvail ? ' (Trống)' : ' (Hiện tại)';
+    String statusStr;
+    switch (room.status) {
+      case 'available':
+        statusStr = ' (Trống)';
+        break;
+      case 'rented':
+        statusStr = ' (Đang thuê - Ở ghép)';
+        break;
+      case 'maintenance':
+        statusStr = ' (Bảo trì)';
+        break;
+      default:
+        statusStr = ' (${room.status})';
+    }
     return '$prefix$priceStr$statusStr';
   }
 
-  // Tính số ngày tối đa trong tháng (Long)
-  int _daysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
-
-  // Widget chọn ngày dạng lịch kết hợp phân Ngày / Tháng / Năm (Long)
-  Widget _buildDateSelector({
-    required String label,
-    required DateTime? selectedDate,
-    required ValueChanged<DateTime?> onDateChanged,
-    required bool isRequired,
-    String? errorText,
-  }) {
-    final now = DateTime.now();
-    final year = selectedDate?.year ?? now.year;
-    final month = selectedDate?.month ?? now.month;
-    final maxDays = _daysInMonth(year, month);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              Icons.calendar_month,
-              size: 16,
-              color: Colors.indigo.shade700,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
-              ),
-            ),
-            const Spacer(),
-            if (selectedDate != null)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.indigo.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.indigo.shade200),
-                ),
-                child: Text(
-                  _formatDate(selectedDate),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.indigo.shade800,
-                    fontSize: 12,
-                  ),
-                ),
-              )
-            else if (!isRequired)
-              Text(
-                '(Chưa chọn)',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-              ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: errorText != null
-                  ? Colors.red.shade400
-                  : Colors.grey.shade400,
-            ),
-          ),
-          child: Row(
-            children: [
-              // 1. Phân chọn Ngày (Day dropdown)
-              Expanded(
-                flex: 2,
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    isExpanded: true,
-                    value: selectedDate?.day,
-                    hint: const Text('Ngày', style: TextStyle(fontSize: 13)),
-                    items: List.generate(maxDays, (i) {
-                      final day = i + 1;
-                      return DropdownMenuItem(
-                        value: day,
-                        child: Text(
-                          day.toString().padLeft(2, '0'),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      );
-                    }),
-                    onChanged: (newDay) {
-                      if (newDay == null) return;
-                      final base = selectedDate ?? DateTime.now();
-                      final validDay =
-                          newDay > _daysInMonth(base.year, base.month)
-                              ? _daysInMonth(base.year, base.month)
-                              : newDay;
-                      onDateChanged(
-                        DateTime(base.year, base.month, validDay),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Text('/', style: TextStyle(color: Colors.grey)),
-              ),
-
-              // 2. Phân chọn Tháng (Month dropdown)
-              Expanded(
-                flex: 3,
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    isExpanded: true,
-                    value: selectedDate?.month,
-                    hint: const Text('Tháng', style: TextStyle(fontSize: 13)),
-                    items: List.generate(12, (i) {
-                      final m = i + 1;
-                      return DropdownMenuItem(
-                        value: m,
-                        child: Text(
-                          'Tháng ${m.toString().padLeft(2, '0')}',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      );
-                    }),
-                    onChanged: (newMonth) {
-                      if (newMonth == null) return;
-                      final base = selectedDate ?? DateTime.now();
-                      final maxD = _daysInMonth(base.year, newMonth);
-                      final validDay = base.day > maxD ? maxD : base.day;
-                      onDateChanged(DateTime(base.year, newMonth, validDay));
-                    },
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Text('/', style: TextStyle(color: Colors.grey)),
-              ),
-
-              // 3. Phân chọn Năm (Year dropdown)
-              Expanded(
-                flex: 3,
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    isExpanded: true,
-                    value: selectedDate?.year,
-                    hint: const Text('Năm', style: TextStyle(fontSize: 13)),
-                    items: List.generate(21, (i) {
-                      final y = 2020 + i;
-                      return DropdownMenuItem(
-                        value: y,
-                        child: Text(
-                          '$y',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      );
-                    }),
-                    onChanged: (newYear) {
-                      if (newYear == null) return;
-                      final base = selectedDate ?? DateTime.now();
-                      final maxD = _daysInMonth(newYear, base.month);
-                      final validDay = base.day > maxD ? maxD : base.day;
-                      onDateChanged(DateTime(newYear, base.month, validDay));
-                    },
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 4),
-
-              // 4. Nút chọn dạng lịch (showDatePicker)
-              IconButton(
-                tooltip: 'Chọn trực tiếp trên lịch',
-                icon: const Icon(Icons.date_range, color: Colors.indigo),
-                onPressed: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: selectedDate ?? DateTime.now(),
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2035),
-                    helpText: label,
-                    confirmText: 'CHỌN',
-                    cancelText: 'HỦY',
-                  );
-                  if (picked != null) {
-                    onDateChanged(picked);
-                  }
-                },
-              ),
-
-              // Nút xóa ngày nếu không bắt buộc
-              if (!isRequired && selectedDate != null)
-                IconButton(
-                  tooltip: 'Xóa ngày',
-                  icon: const Icon(Icons.close, size: 18, color: Colors.grey),
-                  onPressed: () => onDateChanged(null),
-                ),
-            ],
-          ),
-        ),
-
-        // Hiển thị lỗi nếu có
-        if (errorText != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              errorText,
-              style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-            ),
-          ),
-      ],
-    );
-  }
-
-  // Lưu form và trả kết quả về màn hình cha (Long)
   void _save() {
-    setState(() {
-      _startDateError = _startDate == null
-          ? 'Vui lòng chọn ngày bắt đầu thuê'
-          : null;
-      if (_startDate != null &&
-          _endDate != null &&
-          _endDate!.isBefore(_startDate!)) {
-        _endDateError = 'Ngày trả phòng không thể trước ngày bắt đầu thuê';
-      } else {
-        _endDateError = null;
-      }
-    });
+    setState(() => _autoValidate = true);
 
     if (!_formKey.currentState!.validate()) return;
-    if (_startDateError != null || _endDateError != null) return;
 
     if (_selectedRoomNumber == null || _selectedRoomNumber!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn phòng trống cho người thuê!')),
+        const SnackBar(content: Text('Vui lòng chọn phòng cho người thuê!')),
       );
       return;
     }
@@ -965,11 +961,9 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
         ? rawRoom
         : 'Phòng $rawRoom';
 
-    // Xác định trạng thái người thuê
-    String status = widget.tenant?.status ?? 'active';
-    if (_endDate != null && _endDate!.isBefore(DateTime.now())) {
-      status = 'inactive';
-    }
+    // Tính ngày kết thúc: Nếu là dài hạn (months == 0) -> lưu rỗng ''; ngược lại lưu dd/MM/yyyy
+    final calculatedEnd = _calculatedEndDate;
+    final endDateString = calculatedEnd != null ? _formatDate(calculatedEnd) : '';
 
     final result = Tenant(
       id: widget.tenant?.id,
@@ -983,15 +977,14 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
       emergencyPhone: _emergencyPhoneController.text.trim(),
       roomNumber: roomName,
       startDate: _formatDate(_startDate),
-      endDate: _formatDate(_endDate),
-      status: status,
+      endDate: endDateString,
+      status: _status,
       note: _noteController.text.trim(),
     );
 
     Navigator.pop(context, result);
   }
 
-  // Widget tiêu đề phân nhóm trong form
   Widget _sectionHeader(String title, IconData icon) {
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 8),
@@ -1018,6 +1011,23 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
   Widget build(BuildContext context) {
     final isEditing = widget.tenant != null;
 
+    // Danh sách các lựa chọn thời hạn thuê
+    final durationOptions = <int, String>{
+      1: '1 tháng',
+      2: '2 tháng',
+      3: '3 tháng',
+      6: '6 tháng (Nửa năm)',
+      9: '9 tháng',
+      12: '12 tháng (1 năm)',
+      24: '24 tháng (2 năm)',
+      0: 'Thuê dài hạn (Không thời hạn)',
+    };
+
+    // Đảm bảo nếu đang sửa và có số tháng lạ (VD: 5 tháng) thì vẫn hiển thị đúng
+    if (!durationOptions.containsKey(_rentalMonths) && _rentalMonths > 0) {
+      durationOptions[_rentalMonths] = '$_rentalMonths tháng';
+    }
+
     return AlertDialog(
       title: Text(isEditing ? 'Sửa thông tin người thuê' : 'Thêm người thuê mới'),
       content: SizedBox(
@@ -1025,6 +1035,9 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
         child: SingleChildScrollView(
           child: Form(
             key: _formKey,
+            autovalidateMode: _autoValidate
+                ? AutovalidateMode.onUserInteraction
+                : AutovalidateMode.disabled,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1040,8 +1053,9 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                     hintText: 'Ví dụ: tenant101',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
+                    helperText: 'Chữ cái thường, số, dấu gạch dưới (VD: tenant101)',
                   ),
-                  validator: _required,
+                  validator: _validateUsername,
                 ),
 
                 // ── Nhóm: Thông tin cá nhân ──
@@ -1051,10 +1065,12 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                   controller: _fullNameController,
                   decoration: const InputDecoration(
                     labelText: 'Họ và tên *',
+                    hintText: 'Ví dụ: Nguyễn Văn Phát',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.drive_file_rename_outline),
+                    helperText: 'Không được chứa chữ số hoặc ký tự đặc biệt',
                   ),
-                  validator: _required,
+                  validator: _validateFullName,
                 ),
                 const SizedBox(height: 12),
 
@@ -1064,7 +1080,7 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                   maxLength: 12,
                   decoration: const InputDecoration(
                     labelText: 'Số CCCD / CMND *',
-                    hintText: '12 chữ số',
+                    hintText: 'Đúng 12 chữ số',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.credit_card),
                     counterText: '',
@@ -1078,12 +1094,15 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                 TextFormField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
+                  maxLength: 10,
                   decoration: const InputDecoration(
                     labelText: 'Số điện thoại *',
+                    hintText: 'Ví dụ: 0987654321 (10 số, bắt đầu bằng 0)',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone),
+                    counterText: '',
                   ),
-                  validator: _required,
+                  validator: (val) => _validatePhone(val, isRequired: true),
                 ),
                 const SizedBox(height: 12),
 
@@ -1092,9 +1111,11 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
                     labelText: 'Email',
+                    hintText: 'Ví dụ: nguyenphat@gmail.com',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.email_outlined),
                   ),
+                  validator: _validateEmail,
                 ),
                 const SizedBox(height: 12),
 
@@ -1102,6 +1123,7 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                   controller: _addressController,
                   decoration: const InputDecoration(
                     labelText: 'Địa chỉ thường trú',
+                    hintText: 'Số nhà, tên đường, quận/huyện, tỉnh/TP',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.home_outlined),
                   ),
@@ -1119,23 +1141,28 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_pin),
                   ),
+                  validator: _validateEmergencyContact,
                 ),
                 const SizedBox(height: 12),
 
                 TextFormField(
                   controller: _emergencyPhoneController,
                   keyboardType: TextInputType.phone,
+                  maxLength: 10,
                   decoration: const InputDecoration(
                     labelText: 'SĐT người liên hệ khẩn cấp',
+                    hintText: 'Ví dụ: 0901234567',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone_in_talk),
+                    counterText: '',
                   ),
+                  validator: (val) => _validatePhone(val, isRequired: false),
                 ),
 
-                // ── Nhóm: Thông tin thuê phòng (Long) ──
+                // ── Nhóm: Thông tin thuê phòng & Thời hạn ──
                 _sectionHeader('Thông tin thuê phòng', Icons.meeting_room),
 
-                // 1. Số phòng: Dropdown danh sách phòng trống (Long)
+                // 1. Chọn phòng
                 if (_isLoadingRooms)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
@@ -1160,14 +1187,10 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                         Icon(Icons.warning_amber_rounded,
                             color: Colors.amber.shade800),
                         const SizedBox(width: 8),
-                        Expanded(
+                        const Expanded(
                           child: Text(
-                            'Hiện không có phòng nào có trạng thái trống!',
-                            style: TextStyle(
-                              color: Colors.amber.shade900,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            'Chưa có phòng nào trong hệ thống! Vui lòng tạo phòng trước.',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                           ),
                         ),
                       ],
@@ -1178,10 +1201,9 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                     value: _selectedRoomNumber,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: 'Số phòng (chọn phòng trống) *',
+                      labelText: 'Chọn phòng trọ *',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.door_front_door_outlined),
-                      helperText: 'Danh sách các phòng có trạng thái trống',
                     ),
                     items: _availableRooms.map((room) {
                       return DropdownMenuItem<String>(
@@ -1203,52 +1225,145 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
                     },
                     validator: (val) {
                       if (val == null || val.isEmpty) {
-                        return 'Vui lòng chọn phòng trống';
+                        return 'Vui lòng chọn phòng thuê';
                       }
                       return null;
                     },
                   ),
                 const SizedBox(height: 14),
 
-                // 2. Ngày bắt đầu thuê (Dạng lịch & phân chia Ngày / Tháng / Năm) (Long)
-                _buildDateSelector(
-                  label: 'Ngày bắt đầu thuê *',
-                  selectedDate: _startDate,
-                  isRequired: true,
-                  errorText: _startDateError,
-                  onDateChanged: (dt) {
-                    setState(() {
-                      _startDate = dt;
-                      _startDateError = null;
-                      if (_endDate != null && dt != null && _endDate!.isBefore(dt)) {
-                        _endDateError =
-                            'Ngày trả phòng không thể trước ngày bắt đầu thuê';
-                      } else {
-                        _endDateError = null;
-                      }
-                    });
+                // 2. Ngày bắt đầu thuê
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _startDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2035),
+                      helpText: 'Chọn ngày bắt đầu thuê',
+                      confirmText: 'CHỌN',
+                      cancelText: 'HỦY',
+                    );
+                    if (picked != null) {
+                      setState(() => _startDate = picked);
+                    }
                   },
+                  borderRadius: BorderRadius.circular(8),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Ngày bắt đầu thuê *',
+                      prefixIcon: Icon(Icons.calendar_month, color: Colors.indigo),
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                    ),
+                    child: Text(
+                      _formatDate(_startDate),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 14),
 
-                // 3. Ngày trả phòng (Thay cho trạng thái phòng, cùng giao diện lịch & Ngày/Tháng/Năm) (Long)
-                _buildDateSelector(
-                  label: 'Ngày trả phòng',
-                  selectedDate: _endDate,
-                  isRequired: false,
-                  errorText: _endDateError,
-                  onDateChanged: (dt) {
-                    setState(() {
-                      _endDate = dt;
-                      if (dt != null &&
-                          _startDate != null &&
-                          dt.isBefore(_startDate!)) {
-                        _endDateError =
-                            'Ngày trả phòng không thể trước ngày bắt đầu thuê';
-                      } else {
-                        _endDateError = null;
-                      }
-                    });
+                // 3. Thời hạn thuê (Bỏ chọn ngày trả phòng, thay bằng số tháng thuê / dài hạn)
+                DropdownButtonFormField<int>(
+                  value: _rentalMonths,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Thời hạn thuê (Hợp đồng) *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.access_time_filled, color: Colors.indigo),
+                  ),
+                  items: durationOptions.entries.map((entry) {
+                    return DropdownMenuItem<int>(
+                      value: entry.key,
+                      child: Text(
+                        entry.value,
+                        style: TextStyle(
+                          fontWeight: entry.key == 0 ? FontWeight.bold : FontWeight.normal,
+                          color: entry.key == 0 ? Colors.amber.shade900 : Colors.black87,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _rentalMonths = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+
+                // Hộp hiển thị tự động Ngày trả phòng dự kiến
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _rentalMonths == 0 ? Colors.amber.shade50 : Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _rentalMonths == 0 ? Colors.amber.shade300 : Colors.indigo.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _rentalMonths == 0 ? Icons.all_inclusive : Icons.event_available,
+                        color: _rentalMonths == 0 ? Colors.amber.shade800 : Colors.indigo.shade700,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ngày trả phòng dự kiến:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _rentalMonths == 0
+                                  ? 'Chưa có (Thuê dài hạn / Chưa xác định)'
+                                  : '${_formatDate(_calculatedEndDate)} (Hết hạn sau $_rentalMonths tháng)',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: _rentalMonths == 0
+                                    ? Colors.amber.shade900
+                                    : Colors.indigo.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // 4. Trạng thái người thuê
+                DropdownButtonFormField<String>(
+                  value: _status,
+                  decoration: const InputDecoration(
+                    labelText: 'Trạng thái thuê *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.toggle_on_outlined),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'active',
+                      child: Text('Đang thuê (Active)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'inactive',
+                      child: Text('Đã rời phòng (Inactive)'),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _status = val);
                   },
                 ),
                 const SizedBox(height: 14),
@@ -1288,10 +1403,14 @@ class _TenantFormDialogState extends State<TenantFormDialog> {
 // ─────────────────────────────────────────────────────────────
 class TenantDetailScreen extends StatelessWidget {
   final Tenant tenant;
+  final VoidCallback? onStatusToggle;
 
-  const TenantDetailScreen({super.key, required this.tenant});
+  const TenantDetailScreen({
+    super.key,
+    required this.tenant,
+    this.onStatusToggle,
+  });
 
-  // Widget hiển thị từng dòng thông tin
   Widget _buildInfoRow(String label, String value, IconData icon) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1325,7 +1444,6 @@ class TenantDetailScreen extends StatelessWidget {
     );
   }
 
-  // Widget thẻ nhóm thông tin
   Widget _buildSection(String title, IconData icon, List<Widget> children) {
     return Card(
       elevation: 1,
@@ -1335,7 +1453,6 @@ class TenantDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Tiêu đề nhóm
             Row(
               children: [
                 Icon(icon, size: 20, color: Colors.indigo),
@@ -1376,7 +1493,7 @@ class TenantDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Thẻ tổng quan ──
+            // Thẻ tổng quan
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -1386,7 +1503,6 @@ class TenantDetailScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: Column(
                   children: [
-                    // Avatar lớn
                     CircleAvatar(
                       radius: 36,
                       backgroundColor: isActive
@@ -1415,7 +1531,6 @@ class TenantDetailScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // Badge trạng thái
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -1441,13 +1556,29 @@ class TenantDetailScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onStatusToggle != null) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          onStatusToggle!();
+                          Navigator.pop(context);
+                        },
+                        icon: Icon(
+                          isActive ? Icons.person_off : Icons.how_to_reg,
+                          size: 18,
+                        ),
+                        label: Text(
+                          isActive ? 'Đánh dấu đã trả phòng' : 'Kích hoạt lại thuê',
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 12),
 
-            // ── Thông tin cá nhân ──
+            // Thông tin cá nhân
             _buildSection(
               'Thông tin cá nhân',
               Icons.badge,
@@ -1459,7 +1590,7 @@ class TenantDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // ── Thông tin liên hệ ──
+            // Thông tin liên hệ
             _buildSection(
               'Thông tin liên hệ',
               Icons.contact_phone,
@@ -1472,7 +1603,7 @@ class TenantDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // ── Liên hệ khẩn cấp ──
+            // Liên hệ khẩn cấp
             _buildSection(
               'Liên hệ khẩn cấp',
               Icons.emergency,
@@ -1491,7 +1622,7 @@ class TenantDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // ── Thông tin thuê phòng ──
+            // Thông tin thuê phòng
             _buildSection(
               'Thông tin thuê phòng',
               Icons.meeting_room,
@@ -1508,13 +1639,14 @@ class TenantDetailScreen extends StatelessWidget {
                 ),
                 _buildInfoRow(
                   'Ngày trả phòng',
-                  tenant.endDate.isEmpty ? 'Chưa trả phòng' : tenant.endDate,
+                  tenant.isLongTerm
+                      ? 'Chưa có (Thuê dài hạn)'
+                      : tenant.endDate,
                   Icons.event_busy,
                 ),
               ],
             ),
 
-            // ── Ghi chú (nếu có) ──
             if (tenant.note.isNotEmpty) ...[
               const SizedBox(height: 10),
               Card(
@@ -1547,7 +1679,6 @@ class TenantDetailScreen extends StatelessWidget {
                 ),
               ),
             ],
-
             const SizedBox(height: 20),
           ],
         ),

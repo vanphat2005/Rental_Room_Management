@@ -36,6 +36,10 @@ class Tenant {
   // Ghi chú
   final String note;
 
+  // Tiện ích kiểm tra thuê dài hạn
+  bool get isLongTerm => endDate.trim().isEmpty;
+  String get displayEndDate => isLongTerm ? 'Chưa có (Dài hạn)' : endDate;
+
   const Tenant({
     this.id,
     required this.username,

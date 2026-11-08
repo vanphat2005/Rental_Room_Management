@@ -1,4 +1,3 @@
-
 class Room {
   final int? id;
   final String roomNumber;
@@ -6,6 +5,7 @@ class Room {
   final double area;
   final String status;
   final String description;
+  final int maxOccupants; // Sức chứa tối đa của phòng (mặc định: 2 người)
 
   const Room({
     this.id,
@@ -14,6 +14,7 @@ class Room {
     required this.area,
     required this.status,
     required this.description,
+    this.maxOccupants = 2,
   });
 
   Map<String, dynamic> toMap() {
@@ -24,6 +25,7 @@ class Room {
       'area': area,
       'status': status,
       'description': description,
+      'max_occupants': maxOccupants,
     };
   }
 
@@ -35,6 +37,27 @@ class Room {
       area: (map['area'] as num).toDouble(),
       status: map['status'] as String,
       description: map['description'] as String,
+      maxOccupants: (map['max_occupants'] as int?) ?? 2,
+    );
+  }
+
+  Room copyWith({
+    int? id,
+    String? roomNumber,
+    double? rentPrice,
+    double? area,
+    String? status,
+    String? description,
+    int? maxOccupants,
+  }) {
+    return Room(
+      id: id ?? this.id,
+      roomNumber: roomNumber ?? this.roomNumber,
+      rentPrice: rentPrice ?? this.rentPrice,
+      area: area ?? this.area,
+      status: status ?? this.status,
+      description: description ?? this.description,
+      maxOccupants: maxOccupants ?? this.maxOccupants,
     );
   }
 }

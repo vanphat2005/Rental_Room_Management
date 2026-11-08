@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/account_database.dart';
 import '../database/tenant_database.dart';
+import '../models/tenant.dart';
 import 'room_management_screen.dart';
 import 'tenant_invoice_screen.dart';
 
@@ -78,21 +79,20 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final tenants = await TenantDatabase.instance.getAllTenants();
-      final tenant = tenants.isEmpty
-          ? null
-          : tenants.firstWhere(
-              (item) =>
-                  item.username.toLowerCase() ==
-                  account.username.toLowerCase(),
-              orElse: () => tenants.first,
-            );
+      Tenant? matchedTenant;
+      for (final t in tenants) {
+        if (t.username.toLowerCase() == account.username.toLowerCase()) {
+          matchedTenant = t;
+          break;
+        }
+      }
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => TenantInvoiceScreen(
-            roomNumber: tenant?.roomNumber,
-            tenantName: tenant?.fullName ?? account.fullName,
+            roomNumber: matchedTenant?.roomNumber,
+            tenantName: matchedTenant?.fullName ?? account.fullName,
           ),
         ),
       );
