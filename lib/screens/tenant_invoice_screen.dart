@@ -1,3 +1,8 @@
+// ============================================================
+// Author : Le Van Nguyen - CE181235
+// Feature: Invoice Management (Actor: Tenant)
+// UC ID  : UC-22 (View Invoice)
+// ============================================================
 
 import 'package:flutter/material.dart';
 
@@ -6,6 +11,8 @@ import '../database/room_database.dart';
 import '../models/invoice.dart';
 import 'login_screen.dart';
 
+/// Màn hình Xem hóa đơn dành cho Khách thuê (Tenant).
+/// Cho phép người thuê tra cứu, lọc và xem chi tiết hóa đơn theo từng phòng thuê.
 class TenantInvoiceScreen extends StatefulWidget {
   final String? roomNumber;
   final String? tenantName;
@@ -34,6 +41,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     _initData();
   }
 
+  /// Chuẩn hóa chuỗi số phòng theo tiền tố 'Phòng ' để truy vấn đồng nhất.
   String _normalizeRoomNumber(String? roomNumber) {
     final raw = (roomNumber ?? '').trim();
     if (raw.isEmpty) {
@@ -45,11 +53,10 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
         : 'Phòng $raw';
   }
 
-  // Khởi tạo danh sách phòng và tải hóa đơn
+  /// Nạp danh sách các phòng và tự động tải hóa đơn cho phòng tương ứng của khách thuê.
   Future<void> _initData() async {
     setState(() => _isLoading = true);
     try {
-      // Tải danh sách phòng từ RoomDatabase & InvoiceDatabase để làm danh sách lựa chọn
       final roomsFromDb = await RoomDatabase.instance.getAllRooms();
       final allInvoices = await InvoiceDatabase.instance.getAllInvoices();
 
@@ -70,7 +77,6 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
       final roomList = roomSet.toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-      // Xác định phòng mặc định được chọn
       String? defaultRoom = _normalizeRoomNumber(widget.roomNumber);
       if (defaultRoom.isEmpty && roomList.isNotEmpty) {
         defaultRoom = roomList.first;
@@ -79,7 +85,6 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
       _availableRooms = roomList;
       _selectedRoom = defaultRoom;
 
-      // Tải hóa đơn của phòng đã chọn
       await _loadInvoicesForSelectedRoom();
     } catch (e) {
       if (!mounted) return;
@@ -90,7 +95,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     }
   }
 
-  // Tải danh sách hóa đơn của phòng đang chọn
+  /// Tải danh sách hóa đơn theo số phòng đang chọn từ IndexedDB.
   Future<void> _loadInvoicesForSelectedRoom() async {
     if (_selectedRoom == null || _selectedRoom!.isEmpty) {
       setState(() {
@@ -119,7 +124,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     }
   }
 
-  // Lọc danh sách theo trạng thái và tìm kiếm
+  /// Áp dụng bộ lọc trạng thái thanh toán và từ khóa tìm kiếm trên danh sách hóa đơn.
   List<Invoice> get _filteredInvoices {
     return _invoices.where((inv) {
       final matchesStatus =
@@ -133,16 +138,17 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     }).toList();
   }
 
-  // Thống kê tiền chưa thanh toán của phòng này
+  /// Tính tổng số tiền cần thanh toán của các kỳ hóa đơn chưa trả.
   double get _totalUnpaidAmount {
     return _invoices
         .where((inv) => inv.status == 'unpaid')
         .fold(0.0, (sum, inv) => sum + inv.totalAmount);
   }
 
+  /// Đếm số kỳ hóa đơn đã hoàn thành nghĩa vụ thanh toán.
   int get _paidCount => _invoices.where((inv) => inv.status == 'paid').length;
 
-  // Định dạng số tiền VND: VD 2500000 -> "2.500.000 đ"
+  /// Định dạng giá trị số sang tiền tệ VNĐ (ví dụ: 1.500.000 đ).
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
     final buffer = StringBuffer();
@@ -177,7 +183,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
               ),
           ],
         ),
-        backgroundColor: Colors.teal.shade700,
+        backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -221,16 +227,16 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // ── Bộ chọn phòng (cho phép chuyển đổi phòng để xem) ──
+                // Bộ chọn phòng đang thuê
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 10,
                   ),
-                  color: Colors.teal.shade50,
+                  color: Colors.indigo.shade50,
                   child: Row(
                     children: [
-                      const Icon(Icons.door_front_door, color: Colors.teal),
+                      const Icon(Icons.door_front_door, color: Colors.indigo),
                       const SizedBox(width: 8),
                       const Text(
                         'Phòng:',
@@ -272,7 +278,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                   ),
                 ),
 
-                // ── Thẻ tổng quan thống kê cho Người thuê ──
+                // Card thống kê nhanh tình trạng nợ và số lượng hóa đơn
                 Container(
                   width: double.infinity,
                   margin: const EdgeInsets.all(12),
@@ -290,7 +296,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                         offset: const Offset(0, 2),
                       ),
                     ],
-                    border: Border.all(color: Colors.teal.shade100),
+                    border: Border.all(color: Colors.indigo.shade100),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -308,7 +314,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: Colors.teal.shade800,
+                              color: Colors.indigo.shade800,
                             ),
                           ),
                         ],
@@ -341,7 +347,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                         width: 1,
                         color: Colors.grey.shade300,
                       ),
-                      // Số hóa đơn đã thanh toán
+                      // Số kỳ đã thanh toán
                       Column(
                         children: [
                           const Text(
@@ -363,7 +369,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                   ),
                 ),
 
-                // ── Tìm kiếm & Lọc trạng thái ──
+                // Thanh tìm kiếm và bộ lọc trạng thái hóa đơn
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
@@ -424,7 +430,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // ── Danh sách hóa đơn (ListView) - Chỉ xem ──
+                // Danh sách hóa đơn của khách thuê (chế độ chỉ xem)
                 Expanded(
                   child: filteredList.isEmpty
                       ? Center(
@@ -483,7 +489,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                                   child: Text(
                                     'Tổng tiền: ${_formatMoney(invoice.totalAmount)}',
                                     style: TextStyle(
-                                      color: Colors.teal.shade900,
+                                      color: Colors.indigo.shade900,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -509,7 +515,6 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                                   ),
                                 ),
                                 onTap: () {
-                                  // Điều hướng sang Màn hình Chi tiết hóa đơn dành cho Tenant (Chỉ xem)
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -530,9 +535,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Màn hình Chi tiết Hóa đơn dành cho Người thuê (Chỉ xem)
-// ─────────────────────────────────────────────────────────────
+/// Màn hình Chi tiết Hóa đơn dành cho Khách thuê (Chỉ xem).
 class TenantInvoiceDetailScreen extends StatelessWidget {
   final Invoice invoice;
 
@@ -541,6 +544,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
     required this.invoice,
   });
 
+  /// Định dạng số tiền sang chuẩn VNĐ.
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
     final buffer = StringBuffer();
@@ -555,6 +559,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
     return '${buffer.toString()} đ';
   }
 
+  /// Dòng hiển thị thành phần chi phí trong bảng kê.
   Widget _buildFeeRow(
     String title,
     double amount, {
@@ -578,7 +583,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
             style: TextStyle(
               fontSize: isTotal ? 18 : 15,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
-              color: isTotal ? Colors.teal.shade900 : Colors.black87,
+              color: isTotal ? Colors.indigo.shade900 : Colors.black87,
             ),
           ),
         ],
@@ -596,7 +601,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
           'Chi tiết ${invoice.monthYear}',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.teal.shade700,
+        backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
@@ -604,7 +609,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Thẻ trạng thái & thông tin kỳ hóa đơn
+            // Thẻ tóm tắt thông tin kỳ hóa đơn và trạng thái
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -659,7 +664,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Bảng kê chi tiết các khoản phí
+            // Bảng kê chi tiết các hạng mục thanh toán
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -694,7 +699,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
               ),
             ),
 
-            // Ghi chú từ chủ trọ (nếu có)
+            // Lời nhắn đính kèm từ ban quản lý / chủ trọ
             if (invoice.note.isNotEmpty) ...[
               const SizedBox(height: 12),
               Card(
@@ -710,7 +715,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
                       const Icon(
                         Icons.message_outlined,
                         size: 20,
-                        color: Colors.teal,
+                        color: Colors.indigo,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -730,17 +735,17 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Hướng dẫn thanh toán thân thiện cho người thuê
+            // Thông báo hướng dẫn thanh toán dành cho người thuê
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.teal.shade50,
+                color: Colors.indigo.shade50,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.teal.shade200),
+                border: Border.all(color: Colors.indigo.shade200),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.teal.shade700),
+                  Icon(Icons.info_outline, color: Colors.indigo),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -749,7 +754,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
                           : 'Vui lòng chuyển khoản hoặc liên hệ trực tiếp chủ trọ để hoàn tất thanh toán trước ngày đến hạn.',
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.teal.shade900,
+                        color: Colors.indigo.shade900,
                       ),
                     ),
                   ),

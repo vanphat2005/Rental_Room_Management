@@ -1,3 +1,9 @@
+// ============================================================
+// Author : Le Van Nguyen - CE181235
+// Feature: Invoice Management (Actor: Landlord)
+// UC IDs : UC-9 (View Invoice List), UC-10 (Create Invoice),
+//          UC-11 (Update Invoice), UC-12 (Delete Invoice)
+// ============================================================
 
 import 'package:flutter/material.dart';
 
@@ -5,8 +11,9 @@ import '../database/invoice_database.dart';
 import '../database/room_database.dart';
 import '../models/invoice.dart';
 import '../models/room.dart';
-import 'tenant_invoice_screen.dart';
 
+/// Màn hình Quản lý Hóa đơn dành cho Chủ trọ (Landlord).
+/// Hỗ trợ thống kê tổng quan, tìm kiếm, lọc và đầy đủ thao tác CRUD hóa đơn.
 class InvoiceManagementScreen extends StatefulWidget {
   const InvoiceManagementScreen({super.key});
 
@@ -18,7 +25,7 @@ class InvoiceManagementScreen extends StatefulWidget {
 class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
   List<Invoice> _invoices = [];
   bool _isLoading = true;
-  String _filterStatus = 'all'; // 'all', 'unpaid', 'paid'
+  String _filterStatus = 'all'; // 'all' (tất cả), 'unpaid' (chưa thu), 'paid' (đã thu)
   String _searchQuery = '';
 
   @override
@@ -27,7 +34,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     _loadInvoices();
   }
 
-  // Tải danh sách hóa đơn từ Database
+  /// Tải toàn bộ danh sách hóa đơn từ cơ sở dữ liệu IndexedDB.
   Future<void> _loadInvoices() async {
     setState(() => _isLoading = true);
     try {
@@ -49,7 +56,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }
   }
 
-  // Mở form Tạo hoặc Cập nhật hóa đơn
+  /// Mở form tạo mới hoặc chỉnh sửa hóa đơn qua Modal Dialog.
   Future<void> _openInvoiceForm({Invoice? invoice}) async {
     final result = await showDialog<Invoice>(
       context: context,
@@ -60,6 +67,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
 
     try {
       if (invoice == null) {
+        // [UC-10] Thêm hóa đơn mới
         await InvoiceDatabase.instance.insertInvoice(result);
         if (!mounted) return;
 
@@ -70,6 +78,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
           ),
         );
       } else {
+        // [UC-11] Cập nhật hóa đơn
         await InvoiceDatabase.instance.updateInvoice(result);
         if (!mounted) return;
 
@@ -94,7 +103,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }
   }
 
-  // Xóa hóa đơn sau khi xác nhận
+  /// [UC-12] Xóa hóa đơn với hộp thoại xác nhận an toàn.
   Future<void> _deleteInvoice(Invoice invoice) async {
     if (invoice.id == null) return;
 
@@ -145,7 +154,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }
   }
 
-  // Lọc danh sách theo trạng thái và tìm kiếm
+  /// Danh sách hóa đơn sau khi áp dụng bộ lọc trạng thái và từ khóa tìm kiếm.
   List<Invoice> get _filteredInvoices {
     return _invoices.where((inv) {
       final matchesStatus =
@@ -159,14 +168,14 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
     }).toList();
   }
 
-  // Thống kê tổng tiền chưa thanh toán
+  /// Thống kê tổng tiền các hóa đơn chưa thu ('unpaid').
   double get _totalUnpaidAmount {
     return _invoices
         .where((inv) => inv.status == 'unpaid')
         .fold(0.0, (sum, inv) => sum + inv.totalAmount);
   }
 
-  // Định dạng số tiền VND: VD 2500000 -> "2.500.000 đ"
+  /// Định dạng tiền tệ VND phân tách hàng nghìn (VD: 2500000 -> "2.500.000 đ").
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
     final buffer = StringBuffer();
@@ -194,18 +203,6 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            tooltip: 'Giao diện Người thuê (Tenant View)',
-            icon: const Icon(Icons.person_pin_outlined),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const TenantInvoiceScreen(),
-                ),
-              );
-            },
-          ),
           IconButton(
             tooltip: 'Tải lại',
             icon: const Icon(Icons.refresh),
@@ -337,7 +334,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Danh sách hóa đơn (ListView)
+                // Danh sách hóa đơn (Lazy loading ListView)
                 Expanded(
                   child: filteredList.isEmpty
                       ? const Center(
@@ -437,7 +434,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
                                   ],
                                 ),
                                 onTap: () async {
-                                  // Điều hướng sang Màn hình Chi tiết ngay bên dưới
+                                  // Điều hướng sang Màn hình Chi tiết hóa đơn
                                   await Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -466,6 +463,7 @@ class _InvoiceManagementScreenState extends State<InvoiceManagementScreen> {
   }
 }
 
+/// Màn hình Chi tiết Hóa đơn dành cho Chủ trọ.
 class InvoiceDetailScreen extends StatefulWidget {
   final Invoice invoice;
 
@@ -487,7 +485,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     _invoice = widget.invoice;
   }
 
-  // Mở form Chỉnh sửa hóa đơn ngay trên màn hình chi tiết
+  /// Mở form chỉnh sửa hóa đơn trực tiếp từ màn hình chi tiết.
   Future<void> _editInvoice() async {
     final updated = await showDialog<Invoice>(
       context: context,
@@ -521,7 +519,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
-  // Xóa hóa đơn ngay trên màn hình chi tiết
+  /// Xóa hóa đơn ngay trên màn hình chi tiết và quay lại danh sách.
   Future<void> _confirmDelete() async {
     if (_invoice.id == null) return;
 
@@ -559,7 +557,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         ),
       );
 
-      Navigator.pop(context); // Trở về màn hình danh sách
+      Navigator.pop(context); // Quay về danh sách sau khi xóa thành công
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -571,7 +569,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
-  // Định dạng số tiền VND
+  /// Định dạng tiền tệ VND.
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
     final buffer = StringBuffer();
@@ -586,7 +584,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     return '${buffer.toString()} đ';
   }
 
-  // Widget hiển thị từng hàng chi phí
+  /// Widget hiển thị từng hàng chi phí minh bạch.
   Widget _buildFeeRow(
     String title,
     double amount, {
@@ -778,11 +776,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Dialog: Tạo mới hoặc Cập nhật hóa đơn
-// ─────────────────────────────────────────────────────────────
+/// Dialog Form dùng chung cho Tạo mới (invoice == null) và Cập nhật (invoice != null).
 class InvoiceFormDialog extends StatefulWidget {
-  final Invoice? invoice; // null = Tạo mới, có giá trị = Cập nhật
+  final Invoice? invoice;
 
   const InvoiceFormDialog({super.key, this.invoice});
 
@@ -811,6 +807,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     super.initState();
     final inv = widget.invoice;
     if (inv != null) {
+      // Nạp dữ liệu cũ khi ở chế độ chỉnh sửa
       _roomNumberController = TextEditingController(text: inv.roomNumber);
       _monthYearController = TextEditingController(text: inv.monthYear);
       _roomPriceController = TextEditingController(
@@ -828,6 +825,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
       _noteController = TextEditingController(text: inv.note);
       _status = inv.status;
     } else {
+      // Khởi tạo giá trị mặc định khi tạo mới
       final now = DateTime.now();
       _roomNumberController = TextEditingController();
       _monthYearController =
@@ -842,6 +840,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     _loadRooms();
   }
 
+  /// Tải danh sách phòng từ RoomDatabase để hỗ trợ chọn nhanh và tự điền giá thuê.
   Future<void> _loadRooms() async {
     try {
       final list = await RoomDatabase.instance.getAllRooms();
@@ -850,7 +849,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
         _rooms = list;
         _isLoadingRooms = false;
 
-        // Nếu đang sửa và phòng khớp với danh sách phòng trong DB, chọn sẵn
+        // Tự động khớp chọn phòng nếu đang ở chế độ chỉnh sửa
         if (widget.invoice != null) {
           final cur = widget.invoice!.roomNumber;
           for (final r in list) {
@@ -887,6 +886,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     return double.tryParse(clean) ?? 0.0;
   }
 
+  /// Tính tổng tiền trực tiếp theo thời gian thực (Live Preview).
   double get _totalAmount {
     return _parseNumber(_roomPriceController.text) +
         _parseNumber(_electricityCostController.text) +
@@ -906,6 +906,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     return '${buffer.toString()} đ';
   }
 
+  /// Khi chọn phòng từ Dropdown: tự điền mã phòng và giá niêm yết của phòng đó.
   void _onRoomSelected(String? roomVal) {
     if (roomVal == null) return;
     setState(() {
@@ -919,6 +920,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     });
   }
 
+  /// Xác thực form và đóng Dialog trả kết quả về.
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
@@ -1194,5 +1196,3 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     );
   }
 }
-
-

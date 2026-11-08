@@ -1,10 +1,16 @@
-// lib/database/invoice_database.dart
+// ============================================================
+// Author : Le Van Nguyen - CE181235
+// Feature: Invoice Management
+// Module : Invoice Database Layer (IndexedDB via idb_shim)
+// ============================================================
 
 import 'package:idb_shim/idb.dart' as idb;
 import 'package:idb_shim/idb_browser.dart';
 
 import '../models/invoice.dart';
 
+/// Lớp truy cập cơ sở dữ liệu IndexedDB cho module Hóa đơn.
+/// Áp dụng Singleton Pattern nhằm duy trì duy nhất 1 kết nối database trong suốt vòng đời ứng dụng.
 class InvoiceDatabase {
   InvoiceDatabase._();
 
@@ -12,6 +18,7 @@ class InvoiceDatabase {
 
   static idb.Database? _database;
 
+  /// Getter khởi tạo hoặc lấy kết nối Database sẵn có.
   Future<idb.Database> get database async {
     if (_database != null) return _database!;
 
@@ -23,6 +30,7 @@ class InvoiceDatabase {
       onUpgradeNeeded: (idb.VersionChangeEvent event) {
         final db = event.database;
 
+        // Tạo ObjectStore 'invoices' với khóa chính 'id' tự tăng
         if (!db.objectStoreNames.contains('invoices')) {
           db.createObjectStore(
             'invoices',
@@ -33,12 +41,13 @@ class InvoiceDatabase {
       },
     );
 
+    // Tự động nạp dữ liệu mẫu ban đầu nếu cơ sở dữ liệu còn trống
     await _seedSampleData();
 
     return _database!;
   }
 
-
+  /// Khởi tạo dữ liệu mẫu cho lần chạy đầu tiên.
   Future<void> _seedSampleData() async {
     final list = await getAllInvoices();
     if (list.isEmpty) {
@@ -83,6 +92,7 @@ class InvoiceDatabase {
     }
   }
 
+  /// [UC-9] Lấy toàn bộ danh sách hóa đơn trong hệ thống (dành cho Landlord).
   Future<List<Invoice>> getAllInvoices() async {
     final db = _database ?? await database;
     final txn = db.transaction('invoices', idb.idbModeReadOnly);
@@ -96,11 +106,11 @@ class InvoiceDatabase {
     }).toList();
   }
 
-  // Thêm hóa đơn mới
+  /// [UC-10] Thêm hóa đơn mới vào cơ sở dữ liệu.
   Future<int> insertInvoice(Invoice invoice) async {
     final db = _database ?? await database;
     final txn = db.transaction('invoices', idb.idbModeReadWrite);
-    final data = invoice.toMap()..remove('id');
+    final data = invoice.toMap()..remove('id'); // Xóa id để IndexedDB tự sinh auto-increment
 
     try {
       final key = await txn.objectStore('invoices').add(data);
@@ -114,7 +124,7 @@ class InvoiceDatabase {
     }
   }
 
-  // Cập nhật hóa đơn
+  /// [UC-11] Cập nhật hóa đơn hiện có dựa theo khóa chính id.
   Future<int> updateInvoice(Invoice invoice) async {
     if (invoice.id == null) {
       throw ArgumentError('Invoice ID không được để trống khi cập nhật.');
@@ -140,7 +150,7 @@ class InvoiceDatabase {
     }
   }
 
-  // Xóa hóa đơn
+  /// [UC-12] Xóa hóa đơn theo khóa chính id.
   Future<int> deleteInvoice(int id) async {
     final db = _database ?? await database;
     final txn = db.transaction('invoices', idb.idbModeReadWrite);
@@ -163,7 +173,8 @@ class InvoiceDatabase {
     }
   }
 
-  // Lấy danh sách hóa đơn theo số phòng (Tenant)
+  /// [UC-22] Lấy danh sách hóa đơn theo số phòng (dành cho Tenant).
+  /// Chuẩn hóa chuỗi số phòng bằng Regex để so khớp chính xác (VD: "101" vs "Phòng 101").
   Future<List<Invoice>> getInvoicesByRoom(String roomNumber) async {
     final allInvoices = await getAllInvoices();
     final cleanRoom = roomNumber
