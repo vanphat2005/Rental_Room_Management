@@ -1,20 +1,16 @@
-
 import 'package:flutter/material.dart';
 
 import '../database/invoice_database.dart';
 import '../database/room_database.dart';
 import '../models/invoice.dart';
 import 'login_screen.dart';
+import 'tenant_incident_screen.dart';
 
 class TenantInvoiceScreen extends StatefulWidget {
   final String? roomNumber;
   final String? tenantName;
 
-  const TenantInvoiceScreen({
-    super.key,
-    this.roomNumber,
-    this.tenantName,
-  });
+  const TenantInvoiceScreen({super.key, this.roomNumber, this.tenantName});
 
   @override
   State<TenantInvoiceScreen> createState() => _TenantInvoiceScreenState();
@@ -40,9 +36,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
       return '';
     }
 
-    return raw.toLowerCase().startsWith('phòng')
-        ? raw
-        : 'Phòng $raw';
+    return raw.toLowerCase().startsWith('phòng') ? raw : 'Phòng $raw';
   }
 
   // Khởi tạo danh sách phòng và tải hóa đơn
@@ -84,9 +78,9 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi khi tải dữ liệu: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Lỗi khi tải dữ liệu: $e')));
     }
   }
 
@@ -102,8 +96,9 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final list =
-          await InvoiceDatabase.instance.getInvoicesByRoom(_selectedRoom!);
+      final list = await InvoiceDatabase.instance.getInvoicesByRoom(
+        _selectedRoom!,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -113,9 +108,9 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi khi tải hóa đơn: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Lỗi khi tải hóa đơn: $e')));
     }
   }
 
@@ -124,9 +119,8 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
     return _invoices.where((inv) {
       final matchesStatus =
           _filterStatus == 'all' || inv.status == _filterStatus;
-      final matchesSearch = inv.monthYear
-              .toLowerCase()
-              .contains(_searchQuery.toLowerCase()) ||
+      final matchesSearch =
+          inv.monthYear.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           inv.roomNumber.toLowerCase().contains(_searchQuery.toLowerCase());
 
       return matchesStatus && matchesSearch;
@@ -181,6 +175,21 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            tooltip: 'Sự cố & Báo hỏng',
+            icon: const Icon(Icons.build_circle_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TenantIncidentScreen(
+                    roomNumber: _selectedRoom ?? widget.roomNumber,
+                    tenantName: widget.tenantName,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
             tooltip: 'Tải lại',
             icon: const Icon(Icons.refresh),
             onPressed: _loadInvoicesForSelectedRoom,
@@ -214,6 +223,36 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                 );
               }
             },
+          ),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: 0,
+        selectedItemColor: Colors.teal.shade700,
+        unselectedItemColor: Colors.grey.shade600,
+        onTap: (index) {
+          if (index == 1) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TenantIncidentScreen(
+                  roomNumber: _selectedRoom ?? widget.roomNumber,
+                  tenantName: widget.tenantName,
+                ),
+              ),
+            );
+          }
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.receipt_long_outlined),
+            activeIcon: Icon(Icons.receipt_long),
+            label: 'Hóa đơn của tôi',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.build_circle_outlined),
+            activeIcon: Icon(Icons.build_circle),
+            label: 'Sự cố & Báo hỏng',
           ),
         ],
       ),
@@ -490,7 +529,9 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
                                 ),
                                 trailing: Chip(
                                   label: Text(
-                                    isPaid ? 'Đã thanh toán' : 'Chưa thanh toán',
+                                    isPaid
+                                        ? 'Đã thanh toán'
+                                        : 'Chưa thanh toán',
                                     style: TextStyle(
                                       color: isPaid
                                           ? Colors.green.shade800
@@ -536,10 +577,7 @@ class _TenantInvoiceScreenState extends State<TenantInvoiceScreen> {
 class TenantInvoiceDetailScreen extends StatelessWidget {
   final Invoice invoice;
 
-  const TenantInvoiceDetailScreen({
-    super.key,
-    required this.invoice,
-  });
+  const TenantInvoiceDetailScreen({super.key, required this.invoice});
 
   String _formatMoney(double value) {
     final digits = value.toInt().toString();
@@ -555,11 +593,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
     return '${buffer.toString()} đ';
   }
 
-  Widget _buildFeeRow(
-    String title,
-    double amount, {
-    bool isTotal = false,
-  }) {
+  Widget _buildFeeRow(String title, double amount, {bool isTotal = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -624,10 +658,7 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       'Phòng: ${invoice.roomNumber}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
+                      style: const TextStyle(fontSize: 16, color: Colors.grey),
                     ),
                     const SizedBox(height: 12),
                     Container(
@@ -636,7 +667,9 @@ class TenantInvoiceDetailScreen extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: isPaid ? Colors.green.shade50 : Colors.red.shade50,
+                        color: isPaid
+                            ? Colors.green.shade50
+                            : Colors.red.shade50,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: isPaid ? Colors.green : Colors.red,
